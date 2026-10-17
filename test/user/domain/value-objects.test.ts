@@ -3,12 +3,13 @@ import { test } from 'node:test';
 import { LoginPassword } from '../../../src/user/domain/LoginPassword.ts';
 import { SessionToken } from '../../../src/user/domain/SessionToken.ts';
 
-test('contraseña conserva espacios y acepta hasta 1024 caracteres sin serializar el secreto', () => {
+test('contraseña conserva espacios y acepta entre 8 y 64 caracteres sin serializar el secreto', () => {
   const password = new LoginPassword(' contraseña ');
   assert.equal(password.value, ' contraseña ');
   assert.equal(JSON.stringify(password), '{}');
-  assert.equal(new LoginPassword('a'.repeat(1024)).value.length, 1024);
-  for (const value of [null, 1, '', 'a'.repeat(1025)]) {
+  assert.equal(new LoginPassword('a'.repeat(8)).value.length, 8);
+  assert.equal(new LoginPassword('a'.repeat(64)).value.length, 64);
+  for (const value of [null, 1, '', 'a'.repeat(7), 'a'.repeat(65)]) {
     assert.throws(() => new LoginPassword(value), { code: 'INVALID_INPUT' });
   }
 });

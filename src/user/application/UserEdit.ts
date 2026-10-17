@@ -4,7 +4,7 @@ import type { PasswordHasher } from '../domain/PasswordHasher.ts';
 import type { SessionRepository } from '../domain/SessionRepository.ts';
 import { UserId } from '../domain/UserId.ts';
 import { UserEmail } from '../domain/UserEmail.ts';
-import { LoginPassword } from '../domain/LoginPassword.ts';
+import { NewPassword } from '../domain/NewPassword.ts';
 import { UserPasswordHash } from '../domain/UserPasswordHash.ts';
 import { UserNotFoundError } from '../domain/UserNotFoundError.ts';
 
@@ -29,7 +29,7 @@ export class UserEdit {
     const changes: UserChanges = {};
     if ('email' in values) changes.email = new UserEmail(values.email);
     if ('password' in values) {
-      const password = new LoginPassword(values.password);
+      const password = new NewPassword(values.password);
       changes.passwordHash = new UserPasswordHash(await this.passwords.hash(password.value));
     }
     // Actualiza solo las columnas enviadas, sin sobrescribir cambios concurrentes en otras columnas.

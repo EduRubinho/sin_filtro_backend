@@ -1,15 +1,15 @@
--- PROPUESTA: ejecutar UNA VEZ en una base nueva de PostgreSQL con PostGIS instalado.
--- No es una migración para la base actual: public.users ya existe allí.
--- No ejecutar junto con sql/001_create_users.sql. No modifica la aplicación.
+-- Esquema inicial completo: ejecutar UNA VEZ en una base nueva y vacía con PostGIS instalado.
+-- Crea la estructura desde cero; no importa cuentas ni actualiza esquemas anteriores.
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS postgis;
 
--- Conserva los cuatro campos de users que consume el login existente.
+-- Cuenta, rol y perfil en una única definición completa.
 -- Los nuevos campos del perfil se completan durante el onboarding.
 CREATE TABLE public.users (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     email VARCHAR(254) NOT NULL CHECK (email = BTRIM(email) AND email <> ''),
+    role VARCHAR(20) NOT NULL DEFAULT 'user' CONSTRAINT users_role_check CHECK (role IN ('user', 'admin')),
     password_hash TEXT NOT NULL CHECK (password_hash <> ''),
     display_name VARCHAR(80) CHECK (BTRIM(display_name) <> ''),
     bio VARCHAR(500),
@@ -132,6 +132,8 @@ CREATE UNIQUE INDEX activity_checkin_codes_current_idx ON public.activity_checki
     WHERE revoked_at IS NULL;
 CREATE INDEX activity_checkin_codes_issuer_idx ON public.activity_checkin_codes (issued_by);
 
+-- Estas FK se declaran después de crear las tablas relacionadas.
+-- Forman parte de la instalación inicial; no son migraciones de datos antiguos.
 -- Impide validar un participante con un código perteneciente a otro evento.
 ALTER TABLE public.activity_participants ADD CONSTRAINT participant_attendance_code_fk
     FOREIGN KEY (activity_id, attendance_code_id)

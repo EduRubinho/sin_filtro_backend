@@ -1,3 +1,6 @@
+import type { ProfileInput, Category } from '../domain/UserProfile.ts';
+import { InvalidArgumentError } from '../../shared/domain/InvalidArgumentError.ts';
+import { AuthError } from '../domain/AuthError.ts';
 import type { Pool } from 'pg';
 import { User, type UserRecord } from '../domain/User.ts';
 import type { UserRepository, UserChanges } from '../domain/UserRepository.ts';
@@ -6,8 +9,8 @@ import type { UserId } from '../domain/UserId.ts';
 import type { UserPasswordHash } from '../domain/UserPasswordHash.ts';
 import { UserAlreadyExistsError } from '../domain/UserAlreadyExistsError.ts';
 
-// El esquema pertenece al repositorio y se versiona en sql/001_create_users.sql.
-const USER_FIELDS = '"id"::text AS id, "email", "password_hash" AS "passwordHash", "created_at" AS "createdAt"';
+// Esquema de usuarios y perfil: docs/database/schema.sql.
+const USER_FIELDS = '"id"::text AS id, "email", "password_hash" AS "passwordHash", "created_at" AS "createdAt", "role", "status", "display_name" AS "displayName", "bio", "onboarding_completed_at" AS "onboardingCompletedAt", ARRAY(SELECT ui.category_id::text FROM public.user_interests ui WHERE ui.user_id = users.id ORDER BY ui.category_id) AS "interestIds"';
 
 function userFromRow(row: UserRecord): User {
   try {
@@ -22,6 +25,36 @@ export class PostgresUserRepository implements UserRepository {
 
   constructor(pool: Pool) {
     this.pool = pool;
+  }
+
+  async findCategories(): Promise<Category[]> {
+    const result = await this.pool.query<Category>('SELECT id::text, name, slug FROM public.categories WHERE is_active = TRUE ORDER BY id');
+    return result.rows;
+  }
+
+  async updateProfile(id: UserId, profile: ProfileInput): Promise<User | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query('SELECT role, status FROM public.users WHERE id = $1 FOR UPDATE', [id.value]);
+      if (!current.rows[0]) { await client.query('ROLLBACK'); return null; }
+      if (current.rows[0].status !== 'active') throw new AuthError('UNAUTHORIZED');
+      if (current.rows[0].role !== 'user') throw new AuthError('FORBIDDEN');
+      const categories = await client.query('SELECT id FROM public.categories WHERE id = ANY($1::bigint[]) AND is_active = TRUE FOR SHARE', [profile.interestIds]);
+      if (categories.rows.length !== profile.interestIds.length) throw new InvalidArgumentError('Uno de los intereses ya no está disponible. Vuelve a seleccionarlos.');
+      await client.query(`UPDATE public.users SET display_name = $2, bio = $3,
+        onboarding_completed_at = COALESCE(onboarding_completed_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [id.value, profile.displayName, profile.bio]);
+      await client.query('DELETE FROM public.user_interests WHERE user_id = $1', [id.value]);
+      await client.query('INSERT INTO public.user_interests (user_id, category_id) SELECT $1, unnest($2::bigint[])', [id.value, profile.interestIds]);
+      const result = await client.query<UserRecord>(`SELECT ${USER_FIELDS} FROM public.users WHERE id = $1`, [id.value]);
+      const user = userFromRow(result.rows[0]);
+      await client.query('COMMIT');
+      return user;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
   }
 
   async findByEmail(email: UserEmail): Promise<User | null> {
@@ -50,7 +83,7 @@ export class PostgresUserRepository implements UserRepository {
   async create(email: UserEmail, passwordHash: UserPasswordHash): Promise<User> {
     try {
       const result = await this.pool.query<UserRecord>(
-        `INSERT INTO "public"."users" ("email", "password_hash") VALUES ($1, $2) RETURNING ${USER_FIELDS}`,
+        `INSERT INTO "public"."users" ("email", "password_hash", "role") VALUES ($1, $2, 'user') RETURNING ${USER_FIELDS}`,
         [email.toLookupValue(), passwordHash.value],
       );
       return userFromRow(result.rows[0]);

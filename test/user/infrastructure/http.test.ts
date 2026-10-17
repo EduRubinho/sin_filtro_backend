@@ -1,3 +1,4 @@
+import { User } from '../../../src/user/domain/User.ts';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
@@ -19,13 +20,13 @@ test('contrato HTTP: login, /me, logout, errores y límite de intentos', async (
   assert.equal(login.status, 200);
   assert.equal(login.headers.get('cache-control'), 'no-store');
   const data = await login.json();
-  assert.deepEqual(data.user, { id: user.id, email: user.email });
+  assert.deepEqual(data.user, User.fromPrimitives(user).toAuth());
   assert.match(data.token, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(Number.isNaN(Date.parse(data.expiresAt)), false);
   const headers = { Authorization: `Bearer ${data.token}` };
   const me = await fetch(`${base}/auth/me`, { headers });
   assert.equal(me.status, 200);
-  assert.deepEqual(await me.json(), { user: { id: user.id, email: user.email } });
+  assert.deepEqual(await me.json(), { user: User.fromPrimitives(user).toAuth() });
   assert.equal((await fetch(`${base}/auth/me`)).status, 401);
   assert.equal((await fetch(`${base}/auth/logout`, { method: 'POST', headers })).status, 204);
   assert.equal((await fetch(`${base}/auth/me`, { headers })).status, 401);
@@ -52,7 +53,7 @@ test('HTTP conserva errores de entrada, tamaño, token, ruta e infraestructura',
   assert.equal(invalid.status, 400);
   assert.deepEqual(await invalid.json(), { error: { code: 'INVALID_INPUT', message: 'Ingresa un correo válido y tu contraseña.' } });
   assert.equal((await post({ email: user.email, password: 'a'.repeat(9000) })).status, 413);
-  const failure = await post({ email: user.email, password: 'a' });
+  const failure = await post({ email: user.email, password: 'a'.repeat(8) });
   assert.equal(failure.status, 500);
   assert.deepEqual(await failure.json(), { error: { code: 'INTERNAL_ERROR', message: 'No se pudo completar la solicitud.' } });
   for (const authorization of ['Basic abc', 'Bearer invalid', `Bearer ${'a'.repeat(44)}`]) {

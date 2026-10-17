@@ -16,15 +16,15 @@ function setup() {
 
 test('CRUD genera ID/fecha, guarda hash y conserva columnas omitidas al editar', async () => {
   const { repository, cases } = setup();
-  const created = await cases.create.execute({ email: ' NEW@EXAMPLE.COM ', password: ' secret ' });
+  const created = await cases.create.execute({ email: ' NEW@EXAMPLE.COM ', password: ' secret123 ' });
   assert.equal(created.id, '1');
   assert.equal(created.email, 'new@example.com');
   assert.equal(Number.isNaN(Date.parse(created.createdAt)), false);
-  assert.deepEqual(Object.keys(created).sort(), ['createdAt', 'email', 'id']);
+  assert.deepEqual(Object.keys(created).sort(), ['createdAt', 'email', 'id', 'profile', 'role', 'status']);
   const stored = await repository.findById(new UserId(created.id));
   assert.ok(stored);
-  assert.notEqual(stored.passwordHash.value, ' secret ');
-  assert.equal(await passwords.verify(' secret ', stored.passwordHash.value), true);
+  assert.notEqual(stored.passwordHash.value, ' secret123 ');
+  assert.equal(await passwords.verify(' secret123 ', stored.passwordHash.value), true);
   assert.deepEqual(await cases.getOneById.execute(created.id), created);
   assert.deepEqual(await cases.getAll.execute(), [created]);
   const edited = await cases.edit.execute(created.id, { email: ' EDITED@EXAMPLE.COM ' });
@@ -38,17 +38,17 @@ test('CRUD genera ID/fecha, guarda hash y conserva columnas omitidas al editar',
 
 test('editar contraseña y eliminar revocan todas las sesiones del usuario', async () => {
   const { cases, sessions } = setup();
-  const user = await cases.create.execute({ email: 'one@example.com', password: 'old' });
-  await cases.create.execute({ email: 'two@example.com', password: 'other' });
-  const first = await cases.login.execute({ email: user.email, password: 'old' });
-  const second = await cases.login.execute({ email: user.email, password: 'old' });
-  const other = await cases.login.execute({ email: 'two@example.com', password: 'other' });
-  assert.deepEqual(await cases.edit.execute(user.id, { password: 'new' }), user);
+  const user = await cases.create.execute({ email: 'one@example.com', password: 'old12345' });
+  await cases.create.execute({ email: 'two@example.com', password: 'other123' });
+  const first = await cases.login.execute({ email: user.email, password: 'old12345' });
+  const second = await cases.login.execute({ email: user.email, password: 'old12345' });
+  const other = await cases.login.execute({ email: 'two@example.com', password: 'other123' });
+  assert.deepEqual(await cases.edit.execute(user.id, { password: 'new12345' }), user);
   assert.equal(await sessions.find(new SessionToken(first.token)), null);
   assert.equal(await sessions.find(new SessionToken(second.token)), null);
   assert.ok(await sessions.find(new SessionToken(other.token)));
-  await assert.rejects(cases.login.execute({ email: user.email, password: 'old' }), { code: 'UNAUTHORIZED' });
-  const fresh = await cases.login.execute({ email: user.email, password: 'new' });
+  await assert.rejects(cases.login.execute({ email: user.email, password: 'old12345' }), { code: 'UNAUTHORIZED' });
+  const fresh = await cases.login.execute({ email: user.email, password: 'new12345' });
   await cases.delete.execute(user.id);
   assert.equal(await sessions.find(new SessionToken(fresh.token)), null);
   assert.ok(await cases.getCurrent.execute(other.token));
@@ -56,9 +56,9 @@ test('editar contraseña y eliminar revocan todas las sesiones del usuario', asy
 
 test('rechaza correos duplicados sin alterar al usuario existente', async () => {
   const { cases } = setup();
-  const first = await cases.create.execute({ email: 'first@example.com', password: 'secret' });
-  const second = await cases.create.execute({ email: 'second@example.com', password: 'secret' });
-  await assert.rejects(cases.create.execute({ email: ' FIRST@EXAMPLE.COM ', password: 'other' }), { code: 'EMAIL_ALREADY_EXISTS' });
+  const first = await cases.create.execute({ email: 'first@example.com', password: 'secret123' });
+  const second = await cases.create.execute({ email: 'second@example.com', password: 'secret123' });
+  await assert.rejects(cases.create.execute({ email: ' FIRST@EXAMPLE.COM ', password: 'other123' }), { code: 'EMAIL_ALREADY_EXISTS' });
   await assert.rejects(cases.edit.execute(second.id, { email: 'FIRST@example.com' }), { code: 'EMAIL_ALREADY_EXISTS' });
   assert.deepEqual(await cases.getOneById.execute(second.id), second);
   assert.deepEqual(await cases.edit.execute(first.id, { email: first.email }), first);

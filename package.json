@@ -12,7 +12,8 @@
     "start": "node --env-file=.env dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
-    "hash-password": "node scripts/hash-password.ts"
+    "hash-password": "node scripts/hash-password.ts",
+    "set-admin": "node --env-file=.env scripts/set-admin.ts"
   },
   "dependencies": {
     "express": "^5.2.1",

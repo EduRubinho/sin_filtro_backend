@@ -2,7 +2,11 @@
 
 **13 tablas: PostgreSQL + PostGIS.** Registro abierto con cualquier correo válido. Sin universidad, campus ni mascotas. Flujo: cuenta e intereses → mapa → inscripción y chat → PIN compartido del evento → álbumes y consulta de recuerdos por distancia.
 
-Estado: propuesta SQL/documental, no aplicada a la base actual ni integrada con endpoints o pantallas. `schema.sql` crea el modelo en una **base nueva** con PostGIS disponible; no ejecutar también `sql/001_create_users.sql`. Para integrar con la base existente se requiere una migración incremental que conserve usuarios/hashes y adaptar los casos de uso del backend. `queries.sql` contiene consultas parametrizadas independientes, no una migración.
+Estado: registro, login con roles y personalización de perfil implementados usando `users`, `categories` y `user_interests`. El resto del modelo social sigue pendiente de integrar con endpoints/pantallas. El único esquema de instalación es [schema.sql](schema.sql): ejecutarlo completo una sola vez en Query Tool de pgAdmin, sobre una **base nueva y vacía** con PostGIS disponible. Crea las 13 tablas y cuatro intereses iniciales, sin cuentas precargadas ni importación de datos anteriores. `queries.sql` contiene consultas parametrizadas para futuras funciones; no es un script de instalación.
+
+`users` se crea directamente con todos sus atributos, incluido `role`. Los dos `ALTER TABLE` del esquema únicamente añaden claves foráneas entre actividades, participantes y códigos, una vez creadas esas tablas; la relación circular actividad/organizador requiere declarar una FK después. No modifican usuarios ni migran una base antigua.
+
+`users.role` admite `user` y `admin`, con `user` por defecto. El registro público siempre crea usuarios normales; la promoción a administrador se hace desde el servidor con `npm run set-admin -- correo@ejemplo.com`. La API devuelve rol y perfil, y comprueba el rol actual al autorizar. El perfil guarda nombre, biografía e intereses en una transacción; exige al menos dos intereses activos. `avatar_storage_key` permanece reservado para una futura subida de fotos. El rol global de administrador es distinto del organizador de un evento.
 
 ## 1. Lugar y actividad
 
@@ -27,7 +31,7 @@ Identificadores BIGINT identity salvo los códigos de asistencia (UUID) y tablas
 
 | Tabla | PK | Contenido y relaciones |
 | --- | --- | --- |
-| `users` | `id` | Email único, hash de contraseña, nombre, biografía, avatar y estado. Sin restricción de dominio académico. |
+| `users` | `id` | Email único, hash de contraseña, nombre, biografía, rol (`user/admin`), avatar y estado. Sin restricción de dominio académico. |
 | `categories` | `id` | Catálogo compartido de intereses y categorías de eventos. |
 | `user_interests` | `(user_id, category_id)` | N:M usuarios/categorías; evita intereses duplicados. |
 | `user_locations` | `user_id` | 0..1 última posición por usuario, precisión, expiración y consentimiento para futuro radar. |
@@ -153,7 +157,7 @@ Referencia de transacciones: [bloqueos de filas en PostgreSQL](https://www.postg
 
 ## 8. Integración y validación pendiente
 
-Se conservan `users.id`, `email`, `password_hash`, `created_at`. Módulos hexagonales sugeridos: `user`, `activity` (incluye asistencia), `chat`, `album`. Compartir pool y `DATABASE_URL`; no un módulo/variable por tabla. La propuesta no cambia configuración ni endpoints actuales.
+Se conservan `users.id`, `email`, `password_hash`, `created_at`. Módulos hexagonales sugeridos: `user`, `activity` (incluye asistencia), `chat`, `album`. Compartir pool y `DATABASE_URL`; no un módulo/variable por tabla. Registro y perfil ya están integrados; actividades, asistencia, chat y álbumes aún requieren sus casos de uso.
 
 Comprobar en una base aislada con PostGIS antes de integrar:
 

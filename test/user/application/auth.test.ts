@@ -9,7 +9,7 @@ import { users, passwords, user, hash, createUsers } from '../../support/auth-fi
 test('normaliza correo, preserva contraseña y nunca expone el hash', async () => {
   const auth = new ServiceContainer(users, passwords, memorySessions());
   const session = await auth.user.login.execute({ email: ' EDU@EXAMPLE.COM ', password: ' contraseña de prueba ' });
-  assert.deepEqual(session.user, { id: '1', email: user.email });
+  assert.deepEqual(session.user, User.fromPrimitives(user).toAuth());
   assert.equal(JSON.stringify(session).includes(hash), false);
   assert.equal((await auth.user.getCurrent.execute(session.token)).id, '1');
   await auth.user.logout.execute(session.token);
@@ -27,7 +27,7 @@ test('usuario inexistente y contraseña errónea tienen el mismo error', async (
 test('rechaza entradas inválidas antes de acceder a la BD', async () => {
   const inaccessible = createUsers({ async findByEmail() { throw new Error('No debe consultar'); } });
   const auth = new ServiceContainer(inaccessible, passwords, memorySessions());
-  for (const input of [null, {}, { email: 'invalid', password: 'a' }, { email: user.email, password: '' }, { email: user.email, password: 'a'.repeat(1025) }]) {
+  for (const input of [null, {}, { email: 'invalid', password: 'a'.repeat(7) }, { email: user.email, password: '' }, { email: user.email, password: 'a'.repeat(65) }]) {
     await assert.rejects(auth.user.login.execute(input), { code: 'INVALID_INPUT' });
   }
 });
@@ -54,9 +54,22 @@ test('verifica el hash ficticio al faltar usuario y valida tokens fuera de HTTP'
   const calls: unknown[][] = [];
   const verifier = { hash: passwords.hash, async verify(...args: [string, string | null]) { calls.push(args); return false; } };
   const auth = new ServiceContainer(users, verifier, memorySessions());
-  await assert.rejects(auth.user.login.execute({ email: 'missing@example.com', password: 'secret' }), { code: 'UNAUTHORIZED' });
-  assert.deepEqual(calls, [['secret', null]]);
+  await assert.rejects(auth.user.login.execute({ email: 'missing@example.com', password: 'secret123' }), { code: 'UNAUTHORIZED' });
+  assert.deepEqual(calls, [['secret123', null]]);
   await assert.rejects(auth.user.getCurrent.execute('invalid'), { code: 'UNAUTHORIZED' });
   await assert.rejects(auth.user.logout.execute('invalid'), { code: 'UNAUTHORIZED' });
   await auth.user.logout.execute('a'.repeat(43));
+});
+
+test('la sesión consulta el rol actual y rechaza cuentas suspendidas', async () => {
+  let current = User.fromPrimitives({ ...user, role: 'admin' });
+  const repository = createUsers({ async findById() { return current; }, async findByEmail() { return current; } });
+  const auth = new ServiceContainer(repository, passwords, memorySessions());
+  const session = await auth.user.login.execute({ email: user.email, password: ' contraseña de prueba ' });
+  assert.equal(session.user.role, 'admin');
+  current = User.fromPrimitives({ ...user, role: 'user' });
+  assert.equal((await auth.user.getCurrent.execute(session.token)).role, 'user');
+  current = User.fromPrimitives({ ...user, status: 'suspended' });
+  await assert.rejects(auth.user.getCurrent.execute(session.token), { code: 'UNAUTHORIZED' });
+  await assert.rejects(auth.user.login.execute({ email: user.email, password: ' contraseña de prueba ' }), { code: 'UNAUTHORIZED' });
 });

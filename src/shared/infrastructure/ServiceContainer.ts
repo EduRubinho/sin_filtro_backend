@@ -1,3 +1,6 @@
+import { UserRegister } from '../../user/application/UserRegister.ts';
+import { UserUpdateProfile } from '../../user/application/UserUpdateProfile.ts';
+import { UserGetCategories } from '../../user/application/UserGetCategories.ts';
 import { UserLogin } from '../../user/application/UserLogin.ts';
 import { UserGetCurrent } from '../../user/application/UserGetCurrent.ts';
 import { UserLogout } from '../../user/application/UserLogout.ts';
@@ -20,6 +23,9 @@ import { createPostgresPool } from './Postgres.ts';
 // Único punto de composición: los casos de uso reciben puertos, nunca otros casos.
 export class ServiceContainer {
   readonly user: {
+    register: UserRegister;
+    updateProfile: UserUpdateProfile;
+    categories: UserGetCategories;
     login: UserLogin;
     getCurrent: UserGetCurrent;
     logout: UserLogout;
@@ -32,6 +38,9 @@ export class ServiceContainer {
 
   constructor(users: UserRepository, passwords: PasswordVerifier & PasswordHasher, sessions: SessionRepository) {
     this.user = {
+      register: new UserRegister(users, passwords, sessions),
+      updateProfile: new UserUpdateProfile(users, sessions),
+      categories: new UserGetCategories(users),
       login: new UserLogin(users, passwords, sessions),
       getCurrent: new UserGetCurrent(users, sessions),
       logout: new UserLogout(sessions),

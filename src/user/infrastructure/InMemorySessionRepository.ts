@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { SessionRepository } from '../domain/SessionRepository.ts';
-import type { UserPrimitives } from '../domain/User.ts';
+import type { AuthUser } from '../domain/User.ts';
 
 // Adaptador para un solo proceso. Reiniciar el servidor invalida sus sesiones.
 export function memorySessions(ttlMs = 30 * 60 * 1000, now = Date.now): SessionRepository {
-  const entries = new Map<string, { user: UserPrimitives; expires: number }>();
+  const entries = new Map<string, { user: AuthUser; expires: number }>();
   const digest = (token: string) => createHash('sha256').update(token).digest('hex');
   function prune() {
     for (const [key, value] of entries) if (value.expires <= now()) entries.delete(key);
@@ -15,8 +15,8 @@ export function memorySessions(ttlMs = 30 * 60 * 1000, now = Date.now): SessionR
       if (entries.size >= 10000) throw new Error('Capacidad de sesiones alcanzada.');
       const token = randomBytes(32).toString('base64url');
       const expires = now() + ttlMs;
-      entries.set(digest(token), { user: user.toPrimitives(), expires });
-      return { token, expiresAt: new Date(expires).toISOString(), user: user.toPrimitives() };
+      entries.set(digest(token), { user: user.toAuth(), expires });
+      return { token, expiresAt: new Date(expires).toISOString(), user: user.toAuth() };
     },
     async find(token) {
       prune();

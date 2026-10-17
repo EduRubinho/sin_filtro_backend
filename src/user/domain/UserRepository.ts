@@ -1,3 +1,4 @@
+import type { ProfileInput, Category } from './UserProfile.ts';
 import type { User } from './User.ts';
 import type { UserEmail } from './UserEmail.ts';
 import type { UserId } from './UserId.ts';
@@ -9,6 +10,8 @@ export interface UserChanges {
 }
 
 export interface UserRepository {
+  findCategories(): Promise<Category[]>;
+  updateProfile(id: UserId, profile: ProfileInput): Promise<User | null>;
   findAll(limit: number, offset: number): Promise<User[]>;
   findByEmail(email: UserEmail): Promise<User | null>;
   findById(id: UserId): Promise<User | null>;

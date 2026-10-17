@@ -1,3 +1,6 @@
+import type { UserRegister } from '../application/UserRegister.ts';
+import type { UserUpdateProfile } from '../application/UserUpdateProfile.ts';
+import type { UserGetCategories } from '../application/UserGetCategories.ts';
 import type { Request, RequestHandler } from 'express';
 import type { UserLogin } from '../application/UserLogin.ts';
 import type { UserGetCurrent } from '../application/UserGetCurrent.ts';
@@ -16,6 +19,9 @@ function bearer(req: Request): string {
 }
 
 export interface UserUseCases {
+  register: UserRegister;
+  updateProfile: UserUpdateProfile;
+  categories: UserGetCategories;
   login: UserLogin;
   getCurrent: UserGetCurrent;
   logout: UserLogout;
@@ -27,6 +33,10 @@ export interface UserUseCases {
 }
 
 export class ExpressUserController {
+  readonly register: RequestHandler;
+  readonly updateProfile: RequestHandler;
+  readonly categories: RequestHandler;
+  readonly requireAdmin: RequestHandler;
   readonly login: RequestHandler;
   readonly me: RequestHandler;
   readonly logout: RequestHandler;
@@ -37,6 +47,14 @@ export class ExpressUserController {
   readonly delete: RequestHandler;
 
   constructor(users: UserUseCases) {
+    this.register = async (req, res) => { res.status(201).json(await users.register.execute(req.body)); };
+    this.updateProfile = async (req, res) => { res.json({ user: await users.updateProfile.execute(bearer(req), req.body) }); };
+    this.categories = async (_req, res) => { res.json({ categories: await users.categories.execute() }); };
+    this.requireAdmin = async (req, _res, next) => {
+      const user = await users.getCurrent.execute(bearer(req));
+      if (user.role !== 'admin') throw new AuthError('FORBIDDEN');
+      next();
+    };
     this.login = async (req, res) => { res.json(await users.login.execute(req.body)); };
     this.me = async (req, res) => { res.json({ user: await users.getCurrent.execute(bearer(req)) }); };
     this.logout = async (req, res) => {

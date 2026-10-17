@@ -2,7 +2,7 @@ import { InvalidArgumentError } from '../../shared/domain/InvalidArgumentError.t
 import type { UserRepository } from '../domain/UserRepository.ts';
 import type { PasswordHasher } from '../domain/PasswordHasher.ts';
 import { UserEmail } from '../domain/UserEmail.ts';
-import { LoginPassword } from '../domain/LoginPassword.ts';
+import { NewPassword } from '../domain/NewPassword.ts';
 import { UserPasswordHash } from '../domain/UserPasswordHash.ts';
 
 export class UserCreate {
@@ -21,7 +21,7 @@ export class UserCreate {
     }
     const values = input as Record<string, unknown>;
     const email = new UserEmail(values.email);
-    const password = new LoginPassword(values.password);
+    const password = new NewPassword(values.password);
     const hash = new UserPasswordHash(await this.passwords.hash(password.value));
     // El repositorio genera id/createdAt y garantiza la unicidad, incluso bajo concurrencia.
     const user = await this.users.create(email, hash);

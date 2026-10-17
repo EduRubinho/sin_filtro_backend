@@ -1,17 +1,10 @@
 # SinFiltro · Backend
 
-Node.js 24+, TypeScript, Express 5 y PostgreSQL. Arquitectura hexagonal y SQL parametrizado con `pg`, sin ORM. Implementa autenticación y CRUD de usuarios para desarrollo.
+Node.js 24+, TypeScript, Express 5 y PostgreSQL con `pg`. Arquitectura hexagonal: `domain` define entidades/puertos, `application` contiene casos de uso e `infrastructure` implementa HTTP y persistencia.
 
 ## Ejecutar
 
-Desde la raíz del proyecto:
-
-```sh
-cd backend
-npm ci
-```
-
-Si no existe `.env`, copiar `cp .env.example .env` y completar:
+Desde `backend`, ejecutar `npm ci`. Si falta `.env`, copiar `.env.example` y completar:
 
 ```env
 DATABASE_URL=postgresql://usuario:password@localhost:5432/sin_filtro
@@ -19,52 +12,51 @@ PORT=3000
 NODE_ENV=development
 ```
 
-- `DATABASE_URL`: conexión a PostgreSQL; `5432` es el puerto de la base.
-- `PORT`: puerto de la API; si se omite, usa `3000`.
-- `NODE_ENV=development`: habilita el CRUD público `/users`. También es el valor usado si se omite. En `production` esas rutas responden `404`.
-
-Crear la base `sin_filtro` en PostgreSQL si no existe. Ejecutar [sql/001_create_users.sql](sql/001_create_users.sql) desde pgAdmin **solo si aún no existe `public.users`**. El backend no ejecuta ese SQL automáticamente.
-
-Iniciar con `npm run dev`. Verifica conexión/esquema y escucha en `0.0.0.0:3000` por defecto.
-
-## Cuenta local
-
-Con el backend iniciado en desarrollo:
+La base indicada debe existir. `5432` es el puerto de PostgreSQL y `PORT` es el de la API.
 
 ```sh
-curl -i http://localhost:3000/users \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"demo@example.com","password":"Ejemplo-local-123!"}'
+npm run dev
 ```
 
-Crea una cuenta para el login móvil. No hay usuarios precargados. La contraseña se almacena como hash scrypt; el correo no requiere dominio universitario.
+Preparación inicial: en pgAdmin selecciona tu base nueva y vacía, abre Query Tool y ejecuta completo [docs/database/schema.sql](docs/database/schema.sql) **una sola vez**, antes de iniciar el backend. Requiere PostGIS instalado en el servidor. Este es el único esquema: crea las 13 tablas, `users` con todos sus atributos y cuatro intereses iniciales. No crea cuentas ni importa usuarios de otra base. Si ya ejecutaste este esquema completo en esa base, no lo repitas. El backend no ejecuta SQL de instalación al arrancar.
 
-## Endpoints actuales
+## Cuentas y roles
 
-| Método y ruta | Función |
+Crear cuenta desde mobile: correo válido de cualquier dominio y contraseña de 8–64 caracteres. Siempre crea `role=user`; la API no acepta elegir rol. El mismo login devuelve `user.role` y `user.profile`.
+
+- **Usuario:** completa nombre (1–80 caracteres), biografía opcional (hasta 500) y al menos dos intereses activos; después entra al mapa. Puede editar su perfil.
+- **Administrador:** entra a una pantalla vacía. Para asignarlo a una cuenta activa existente, ejecutar desde `backend`:
+
+```sh
+npm run set-admin -- correo@ejemplo.com
+```
+
+Después volver a iniciar sesión. No hay administradores precargados. El rol de la app es independiente del usuario PostgreSQL de `DATABASE_URL`.
+
+## API
+
+Las rutas protegidas requieren `Authorization: Bearer <token>`.
+
+| Ruta | Acceso / datos |
 | --- | --- |
-| `POST /auth/login` | Recibe `email/password`; devuelve `token`, `expiresAt` y `user`. |
-| `GET /auth/me` | Devuelve el usuario; requiere `Authorization: Bearer <token>`. |
-| `POST /auth/logout` | Revoca el token; requiere la misma cabecera. |
-| `POST /users` | Crea usuario con `email/password`; solo desarrollo. |
-| `GET /users` y `GET /users/:id` | Lista o consulta usuarios; solo desarrollo. |
-| `PATCH /users/:id` | Modifica correo y/o contraseña; solo desarrollo. |
-| `DELETE /users/:id` | Elimina usuario; solo desarrollo. |
+| `POST /auth/register` | Público: `{email, password}` → sesión, rol `user` y perfil pendiente. |
+| `POST /auth/login` | Público: `{email, password}` → sesión y rol real de la cuenta. |
+| `GET /categories` | Público: `{categories: [{id, name, slug}]}`; solo intereses activos. |
+| `GET /auth/me` | Sesión: `{user}` con rol/perfil actuales. |
+| `PATCH /auth/profile` | Usuario: `{displayName, bio, interestIds}` → `{user}`. Modifica solo su perfil. |
+| `POST /auth/logout` | Sesión: revoca token, responde `204`. |
+| `POST/GET /users`, `GET/PATCH/DELETE /users/:id` | Solo administrador y `NODE_ENV=development`; en producción responden `404`. PATCH modifica correo/contraseña. |
 
-Las rutas `/users` no exigen autenticación en desarrollo. IDs BIGINT se devuelven como texto. Errores: `{ "error": { "code": "...", "message": "..." } }`.
+Las respuestas administrativas de crear, consultar y editar incluyen `id`, `email`, `role`, `status`, `profile` y `createdAt`; el listado usa `{users: [...]}` y las demás `{user: {...}}`. Nunca se devuelve la contraseña ni su hash. `profile` contiene `displayName`, `bio`, `interestIds` y `completed`.
 
-Sesiones de 30 minutos en memoria: reiniciar el backend las elimina. Login admite 10 peticiones por IP cada 15 minutos. Cambiar contraseña o eliminar usuario revoca sus sesiones. El despliegue actual requiere un único proceso.
+`PATCH /users/:id` acepta exclusivamente `email` y/o `password`: no cambia rol, estado ni perfil. Las contraseñas, tanto al iniciar sesión como al registrarse o crearse/cambiarse administrativamente, deben tener 8–64 caracteres. Para personalizar el perfil, el usuario usa `PATCH /auth/profile` con `displayName`, `bio` (puede ser `""`) e `interestIds`; enviar los IDs reales de `GET /categories`. El perfil del administrador no se edita desde esa ruta por ahora.
 
-## Estructura y propuesta de datos
+IDs BIGINT como texto. Contraseñas con scrypt. Sesiones de 30 minutos en memoria; reiniciar el backend las elimina. Login y registro tienen cada uno límite de 10 peticiones por IP/15 minutos. Cada petición protegida consulta el estado/rol actual; cuentas suspendidas/eliminadas no acceden. Cambiar contraseña o eliminar usuario revoca sesiones. El despliegue actual requiere un único proceso.
 
-`src/user/domain`: entidades e interfaces; `application`: casos de uso; `infrastructure`: HTTP y repositorios. `src/shared/infrastructure` contiene configuración, pool y `ServiceContainer`; `src/main.ts` inicia el servidor.
+## Verificación y alcance
 
-El esquema actual usa `public.users`. La [propuesta de 13 tablas](docs/database/README.md) documenta eventos con ubicación propia, chat, asistencia por PIN compartido, álbumes y consultas por radio. **Esos endpoints todavía no están implementados.** Su [schema.sql](docs/database/schema.sql) es para una base nueva, no una migración sobre la existente.
+`npm run typecheck`, `npm test`, `npm run build`. `npm start` ejecuta la compilación de `dist`; `NODE_ENV=production npm start` deshabilita el CRUD de desarrollo. Las pruebas automatizadas usan repositorios en memoria/dobles y no modifican la base real.
 
-## Comandos y Git
+El [modelo social de 13 tablas](docs/database/README.md) conserva eventos, PIN, chat y álbumes como funciones pendientes; registro y perfil ya usan sus tres tablas correspondientes. `docs/database/schema.sql` es un esquema completo para una base nueva, no se ejecuta sobre tablas existentes. También quedan pendientes recuperación de contraseña, fotos de perfil y sesiones persistentes.
 
-Desde `backend`: `npm run typecheck`, `npm test` y `npm run build` verifican tipos, pruebas y compilación. `npm start` ejecuta `dist/main.js` después de compilar; para deshabilitar el CRUD público, usar `NODE_ENV=production npm start`.
-
-Las pruebas usan dobles de PostgreSQL; no modifican la base real ni validan PostGIS. El registro público de producción y la recuperación de contraseña están pendientes.
-
-Solo se versiona `.env.example`, con valores de referencia. `.env` y sus variantes locales están ignorados; las credenciales reales permanecen en cada entorno.
+Solo se versiona `.env.example`; `.env` y variantes locales están ignorados.

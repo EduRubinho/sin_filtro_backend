@@ -12,12 +12,20 @@ export function ExpressUserRouter(users: UserUseCases, environment = process.env
     legacyHeaders: false,
     message: { error: { code: 'RATE_LIMITED', message: 'Demasiados intentos. Vuelve a intentar en 15 minutos.' } },
   }));
+  router.use('/auth/register', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10,
+    standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: { code: 'RATE_LIMITED', message: 'Demasiados intentos. Vuelve a intentar en 15 minutos.' } },
+  }));
   router.use(json({ limit: '8kb' }));
+  router.post('/auth/register', controller.register);
+  router.patch('/auth/profile', controller.updateProfile);
+  router.get('/categories', controller.categories);
   router.post('/auth/login', controller.login);
   router.get('/auth/me', controller.me);
   router.post('/auth/logout', controller.logout);
-  // CRUD público únicamente en desarrollo, según el alcance acordado.
+  // Herramientas CRUD de desarrollo: requieren sesión administrativa vigente.
   if (environment === 'development') {
+    router.use('/users', controller.requireAdmin);
     router.get('/users', controller.getAll);
     router.get('/users/:id', controller.getOneById);
     router.post('/users', controller.create);

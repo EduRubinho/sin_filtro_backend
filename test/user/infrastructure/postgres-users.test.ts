@@ -27,7 +27,7 @@ test('CRUD PostgreSQL parametriza escrituras y deja ID/fecha a la base de datos'
   const repository = new PostgresUserRepository(pool);
   const created = await repository.create(new UserEmail(row.email), new UserPasswordHash(row.passwordHash));
   assert.equal(created.id.value, '1');
-  assert.match(calls[0].sql, /^INSERT INTO "public"\."users" \("email", "password_hash"\) VALUES \(\$1, \$2\) RETURNING/);
+  assert.match(calls[0].sql, /^INSERT INTO "public"\."users" \("email", "password_hash", "role"\) VALUES \(\$1, \$2, 'user'\) RETURNING/);
   assert.deepEqual(calls[0].values, [row.email, row.passwordHash]);
   assert.equal(calls[0].sql.includes(row.email), false);
   await repository.update(new UserId('1'), { email: new UserEmail(' CHANGED@EXAMPLE.COM ') });

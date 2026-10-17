@@ -31,7 +31,7 @@ export class UserLogin {
     const credentials = await this.users.findByEmail(email);
     // También verifica un hash ficticio si el correo no existe.
     const matches = await this.passwords.verify(password.value, credentials?.passwordHash.value ?? null);
-    if (!credentials || !matches) throw new AuthError('UNAUTHORIZED');
+    if (!credentials || !matches || credentials.status !== 'active') throw new AuthError('UNAUTHORIZED');
     return this.sessions.create(credentials);
   }
 }
