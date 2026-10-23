@@ -60,7 +60,7 @@ export class InMemoryUserRepository implements UserRepository {
   }
 
   async findAll(limit: number, offset: number): Promise<User[]> {
-    return [...this.users.values()]
+    return [...this.users.values()].filter(user => user.role.value === 'user')
       .sort((a, b) => BigInt(a.id.value) < BigInt(b.id.value) ? -1 : 1)
       .slice(offset, offset + limit);
   }
@@ -78,7 +78,7 @@ export class InMemoryUserRepository implements UserRepository {
 
   async update(id: UserId, changes: UserChanges): Promise<User | null> {
     const current = this.users.get(id.value);
-    if (!current) return null;
+    if (!current || current.role.value !== 'user') return null;
     if (changes.email) this.ensureUniqueEmail(changes.email, id.value);
     const user = User.fromPrimitives({
       id: id.value, email: changes.email?.toLookupValue() ?? current.email.value,
@@ -92,6 +92,7 @@ export class InMemoryUserRepository implements UserRepository {
   }
 
   async delete(id: UserId): Promise<boolean> {
+    if (this.users.get(id.value)?.role.value !== 'user') return false;
     return this.users.delete(id.value);
   }
 

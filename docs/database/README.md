@@ -2,7 +2,7 @@
 
 **13 tablas: PostgreSQL + PostGIS.** Registro abierto con cualquier correo válido. Sin universidad, campus ni mascotas. Flujo: cuenta e intereses → mapa → inscripción y chat → PIN compartido del evento → álbumes y consulta de recuerdos por distancia.
 
-Estado: registro, login con roles y personalización de perfil implementados usando `users`, `categories` y `user_interests`. El resto del modelo social sigue pendiente de integrar con endpoints/pantallas. El único esquema de instalación es [schema.sql](schema.sql): ejecutarlo completo una sola vez en Query Tool de pgAdmin, sobre una **base nueva y vacía** con PostGIS disponible. Crea las 13 tablas y cuatro intereses iniciales, sin cuentas precargadas ni importación de datos anteriores. `queries.sql` contiene consultas parametrizadas para futuras funciones; no es un script de instalación.
+Estado: registro, login con roles y personalización de perfil implementados usando `users`, `categories` y `user_interests`. También está implementado el CRUD administrativo de eventos sobre `activities`, con inscripción del organizador en la misma transacción. Los flujos de creación/inscripción por usuarios desde la app, PIN, chat y álbumes siguen pendientes. El único esquema de instalación es [schema.sql](schema.sql): ejecutarlo completo una sola vez en Query Tool de pgAdmin, sobre una **base nueva y vacía** con PostGIS disponible. Crea las 13 tablas y cuatro intereses iniciales, sin cuentas precargadas ni importación de datos anteriores. `queries.sql` contiene consultas parametrizadas para futuras funciones; no es un script de instalación.
 
 `users` se crea directamente con todos sus atributos, incluido `role`. Los dos `ALTER TABLE` del esquema únicamente añaden claves foráneas entre actividades, participantes y códigos, una vez creadas esas tablas; la relación circular actividad/organizador requiere declarar una FK después. No modifican usuarios ni migran una base antigua.
 
@@ -120,7 +120,7 @@ QR = URL web con token largo independiente del PIN. Validar su hash, vigencia y 
 
 ## 6. Mapa y recuerdos: consultas separadas
 
-**Mapa:** ruta propuesta `GET /activities/map?lat=...&lng=...&radiusMeters=500`. Solo `published`, `ends_at > ahora` y `deleted_at IS NULL`, dentro del radio. Devuelve coordenadas para marcadores. Excluye completadas aunque su fin programado sea futuro.
+**Mapa (implementado):** ruta `GET /activities/map?lat=...&lng=...&radiusMeters=500`. Requiere sesión activa; radio máximo 10000 m, hasta 100 resultados con `hasMore`. Solo `published`, `ends_at > ahora` y `deleted_at IS NULL`, dentro del radio. Devuelve coordenadas para marcadores. Excluye completadas aunque su fin programado sea futuro.
 
 **Recuerdos cercanos:** ruta propuesta `GET /albums/nearby?lat=...&lng=...&radiusMeters=500`. Devuelve una lista en su propio apartado; **no se añade a los marcadores del mapa**. El punto puede ser GPS o un punto elegido y no necesita guardarse en `user_locations`.
 
@@ -157,7 +157,7 @@ Referencia de transacciones: [bloqueos de filas en PostgreSQL](https://www.postg
 
 ## 8. Integración y validación pendiente
 
-Se conservan `users.id`, `email`, `password_hash`, `created_at`. Módulos hexagonales sugeridos: `user`, `activity` (incluye asistencia), `chat`, `album`. Compartir pool y `DATABASE_URL`; no un módulo/variable por tabla. Registro y perfil ya están integrados; actividades, asistencia, chat y álbumes aún requieren sus casos de uso.
+Se conservan `users.id`, `email`, `password_hash`, `created_at`. Módulos hexagonales sugeridos: `user`, `activity` (incluye asistencia), `chat`, `album`. Compartir pool y `DATABASE_URL`; no un módulo/variable por tabla. Registro, perfil y CRUD administrativo de eventos están integrados; el flujo de usuarios en actividades, asistencia, chat y álbumes aún requiere sus casos de uso.
 
 Comprobar en una base aislada con PostGIS antes de integrar:
 

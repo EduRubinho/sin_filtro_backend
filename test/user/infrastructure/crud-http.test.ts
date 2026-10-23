@@ -14,7 +14,12 @@ async function start(t: TestContext, environment = 'development') {
   const sessions = memorySessions();
   const adminSession = await sessions.create(admin);
   const cases = new ServiceContainer(new InMemoryUserRepository([admin]), passwords, sessions).user;
-  const server = createHttpApp(ExpressUserRouter(cases, environment)).listen(0, '127.0.0.1');
+  const previousEnvironment = process.env.NODE_ENV;
+  process.env.NODE_ENV = environment;
+  const routes = ExpressUserRouter(cases);
+  if (previousEnvironment === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = previousEnvironment;
+  const server = createHttpApp(routes).listen(0, '127.0.0.1');
   t.after(() => { server.closeAllConnections(); server.close(); });
   await once(server, 'listening');
   const address = server.address();
@@ -33,9 +38,9 @@ test('CRUD HTTP de administrador en desarrollo: crear, listar, consultar, editar
   assert.equal(created.headers.get('location'), `/users/${user.id}`);
   assert.deepEqual(Object.keys(user).sort(), ['createdAt', 'email', 'id', 'profile', 'role', 'status']);
   assert.equal(user.email, 'new@example.com');
-  assert.deepEqual(await (await request('/users?offset=1')).json(), { users: [user] });
+  assert.deepEqual(await (await request('/users')).json(), { users: [user] });
   assert.deepEqual(await (await request(`/users/${user.id}`)).json(), { user });
-  assert.deepEqual(await (await request('/users?limit=1&offset=2')).json(), { users: [] });
+  assert.deepEqual(await (await request('/users?limit=1&offset=1')).json(), { users: [] });
   const login = await request('/auth/login', 'POST', { email: user.email, password: 'secret123' });
   assert.equal(login.status, 200);
   const { token } = await login.json();
@@ -71,10 +76,12 @@ test('CRUD HTTP responde 400, 404 y 409 con errores públicos', async (t) => {
   assert.equal((await request('/users/1', 'PATCH', {})).status, 400);
 });
 
-test('CRUD público no se registra en producción; autenticación sigue disponible', async (t) => {
+test('CRUD administrativo está disponible en producción y excluye administradores', async t => {
   const request = await start(t, 'production');
-  for (const [method, path] of [['GET', '/users'], ['GET', '/users/1'], ['POST', '/users'], ['PATCH', '/users/1'], ['DELETE', '/users/1']]) {
-    assert.equal((await request(path, method)).status, 404);
-  }
-  assert.equal((await request('/auth/me')).status, 401);
+  assert.equal((await request('/users')).status, 200);
+  assert.deepEqual(await (await request('/users')).json(), { users: [] });
+  for (const method of ['GET', 'DELETE']) assert.equal((await request('/users/1', method)).status, 404);
+  assert.equal((await request('/users/1', 'PATCH', { email: 'changed@example.com' })).status, 404);
+  assert.equal((await request('/users', 'POST', { email: 'new@example.com', password: 'password123' })).status, 201);
+  assert.equal((await request('/users', 'GET', undefined, { Authorization: '' })).status, 401);
 });

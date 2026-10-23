@@ -2,7 +2,7 @@ import { json, Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { ExpressUserController, type UserUseCases } from './ExpressUserController.ts';
 
-export function ExpressUserRouter(users: UserUseCases, environment = process.env.NODE_ENV ?? 'development'): Router {
+export function ExpressUserRouter(users: UserUseCases): Router {
   const router = Router();
   const controller = new ExpressUserController(users);
   router.use('/auth/login', rateLimit({
@@ -23,14 +23,12 @@ export function ExpressUserRouter(users: UserUseCases, environment = process.env
   router.post('/auth/login', controller.login);
   router.get('/auth/me', controller.me);
   router.post('/auth/logout', controller.logout);
-  // Herramientas CRUD de desarrollo: requieren sesión administrativa vigente.
-  if (environment === 'development') {
-    router.use('/users', controller.requireAdmin);
-    router.get('/users', controller.getAll);
-    router.get('/users/:id', controller.getOneById);
-    router.post('/users', controller.create);
-    router.patch('/users/:id', controller.edit);
-    router.delete('/users/:id', controller.delete);
-  }
+  // Gestión administrativa disponible en todos los entornos.
+  router.use('/users', controller.requireAdmin);
+  router.get('/users', controller.getAll);
+  router.get('/users/:id', controller.getOneById);
+  router.post('/users', controller.create);
+  router.patch('/users/:id', controller.edit);
+  router.delete('/users/:id', controller.delete);
   return router;
 }

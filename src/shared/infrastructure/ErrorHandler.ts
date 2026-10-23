@@ -3,7 +3,7 @@ import { DomainError } from '../domain/DomainError.ts';
 
 export const errorHandler: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
   if (error instanceof DomainError) {
-    const statuses: Record<string, number> = { INVALID_INPUT: 400, UNAUTHORIZED: 401, FORBIDDEN: 403, USER_NOT_FOUND: 404, EMAIL_ALREADY_EXISTS: 409 };
+    const statuses: Record<string, number> = { INVALID_INPUT: 400, UNAUTHORIZED: 401, FORBIDDEN: 403, USER_NOT_FOUND: 404, EVENT_NOT_FOUND: 404, CONFLICT: 409, EMAIL_ALREADY_EXISTS: 409 };
     const status = statuses[error.code];
     if (status) {
       res.status(status).json({ error: { code: error.code, message: error.message } });

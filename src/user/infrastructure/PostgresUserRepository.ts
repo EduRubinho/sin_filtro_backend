@@ -1,3 +1,4 @@
+import { ConflictError } from '../../shared/domain/ConflictError.ts';
 import type { ProfileInput, Category } from '../domain/UserProfile.ts';
 import { InvalidArgumentError } from '../../shared/domain/InvalidArgumentError.ts';
 import { AuthError } from '../domain/AuthError.ts';
@@ -75,7 +76,7 @@ export class PostgresUserRepository implements UserRepository {
 
   async findAll(limit: number, offset: number): Promise<User[]> {
     const result = await this.pool.query<UserRecord>(
-      `SELECT ${USER_FIELDS} FROM "public"."users" ORDER BY "id" ASC LIMIT $1 OFFSET $2`, [limit, offset],
+      `SELECT ${USER_FIELDS} FROM "public"."users" WHERE "role" = 'user' ORDER BY "id" ASC LIMIT $1 OFFSET $2`, [limit, offset],
     );
     return result.rows.map(userFromRow);
   }
@@ -107,7 +108,7 @@ export class PostgresUserRepository implements UserRepository {
     values.push(id.value);
     try {
       const result = await this.pool.query<UserRecord>(
-        `UPDATE "public"."users" SET ${assignments.join(', ')} WHERE "id" = $${values.length} RETURNING ${USER_FIELDS}`,
+        `UPDATE "public"."users" SET ${assignments.join(', ')} WHERE "id" = $${values.length} AND "role" = 'user' RETURNING ${USER_FIELDS}`,
         values,
       );
       return result.rows[0] ? userFromRow(result.rows[0]) : null;
@@ -117,8 +118,15 @@ export class PostgresUserRepository implements UserRepository {
   }
 
   async delete(id: UserId): Promise<boolean> {
-    const result = await this.pool.query('DELETE FROM "public"."users" WHERE "id" = $1', [id.value]);
-    return result.rowCount === 1;
+    try {
+      const result = await this.pool.query(`DELETE FROM "public"."users" WHERE "id" = $1 AND "role" = 'user'`, [id.value]);
+      return result.rowCount === 1;
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23503') {
+        throw new ConflictError('No se puede eliminar un usuario relacionado con eventos u otros registros.');
+      }
+      throw error;
+    }
   }
 
   private rethrowWriteError(error: unknown): never {

@@ -12,7 +12,12 @@ import { passwords, user } from '../../support/auth-fixture.ts';
 async function start(t: TestContext, environment = 'development') {
   const repository = new InMemoryUserRepository([User.fromPrimitives({ ...user, role: 'admin' })]);
   const cases = new ServiceContainer(repository, passwords, memorySessions()).user;
-  const server = createHttpApp(ExpressUserRouter(cases, environment)).listen(0, '127.0.0.1');
+  const previousEnvironment = process.env.NODE_ENV;
+  process.env.NODE_ENV = environment;
+  const routes = ExpressUserRouter(cases);
+  if (previousEnvironment === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = previousEnvironment;
+  const server = createHttpApp(routes).listen(0, '127.0.0.1');
   t.after(() => { server.closeAllConnections(); server.close(); });
   await once(server, 'listening');
   const address = server.address();
@@ -85,7 +90,7 @@ test('CRUD devuelve rol, estado y perfil actualizado sin secretos; valida contra
   assert.deepEqual(Object.keys(detail.user).sort(), ['createdAt', 'email', 'id', 'profile', 'role', 'status']);
   const list = await (await request('/users', 'GET', undefined, admin.token)).json();
   assert.deepEqual(list.users.find((value: { id: string }) => value.id === normal.user.id), detail.user);
-  assert.equal(list.users.find((value: { id: string }) => value.id === '1').role, 'admin');
+  assert.equal(list.users.some((value: { id: string }) => value.id === '1'), false);
   const edited = await request(`/users/${normal.user.id}`, 'PATCH', { email: 'editado@example.com' }, admin.token);
   assert.deepEqual((await edited.json()).user, { ...detail.user, email: 'editado@example.com' });
   for (const password of ['short', 'a'.repeat(1025)]) {

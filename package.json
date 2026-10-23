@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
     "hash-password": "node scripts/hash-password.ts",
-    "set-admin": "node --env-file=.env scripts/set-admin.ts"
+    "set-admin": "node --env-file=.env scripts/set-admin.ts",
+    "test:integration": "RUN_POSTGRES_TESTS=1 node --env-file=.env --test test/integration/*.test.ts"
   },
   "dependencies": {
     "express": "^5.2.1",

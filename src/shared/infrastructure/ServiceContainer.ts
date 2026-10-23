@@ -1,3 +1,5 @@
+import { EventManagement } from '../../event/application/EventManagement.ts';
+import { PostgresEventRepository } from '../../event/infrastructure/PostgresEventRepository.ts';
 import { UserRegister } from '../../user/application/UserRegister.ts';
 import { UserUpdateProfile } from '../../user/application/UserUpdateProfile.ts';
 import { UserGetCategories } from '../../user/application/UserGetCategories.ts';
@@ -60,7 +62,8 @@ export async function createServiceContainer(config: AppConfig) {
     await pool.query('SELECT 1');
     await users.findByEmail(new UserEmail('schema-check@invalid.example'));
     const container = new ServiceContainer(users, await scryptPasswords(), memorySessions());
-    return { container, close: () => pool.end() };
+    const events = new EventManagement(new PostgresEventRepository(pool));
+    return { container, events, close: () => pool.end() };
   } catch (error) {
     await pool.end();
     throw error;
