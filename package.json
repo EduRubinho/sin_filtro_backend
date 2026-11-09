@@ -19,12 +19,14 @@
   "dependencies": {
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "ws": "^8.22.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^24.19.0",
     "@types/pg": "^8.23.1",
+    "@types/ws": "^8.18.2",
     "typescript": "~5.9.2"
   }
 }

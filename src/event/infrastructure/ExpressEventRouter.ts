@@ -2,8 +2,11 @@ import { AuthError } from '../../user/domain/AuthError.ts';
 import { json, Router } from 'express';
 import type { EventManagement } from '../application/EventManagement.ts';
 import { ExpressUserController, type UserUseCases } from '../../user/infrastructure/ExpressUserController.ts';
+import { rateLimit } from 'express-rate-limit';
+import type { ActivityChat } from '../application/ActivityChat.ts';
+import type { ChatRealtimePublisher } from './ActivityChatRealtime.ts';
 
-export function ExpressEventRouter(events: EventManagement, users: UserUseCases): Router {
+export function ExpressEventRouter(events: EventManagement, users: UserUseCases, chats?: ActivityChat, realtime?: ChatRealtimePublisher): Router {
   const router = Router();
   const authenticated = async (authorization: string | undefined) => {
     const token = /^Bearer (.+)$/.exec(authorization ?? '')?.[1];
@@ -21,6 +24,10 @@ export function ExpressEventRouter(events: EventManagement, users: UserUseCases)
     res.json(await events.map(req.query));
   });
   router.use('/activities', json({ limit: '16kb' }));
+  router.get('/activities/mine', async (req, res) => {
+    const user = await regularUser(req.headers.authorization);
+    res.json(await events.plans(user.id));
+  });
   router.post('/activities', async (req, res) => {
     const user = await regularUser(req.headers.authorization);
     const event = await events.createPublished(user.id, req.body);
@@ -35,6 +42,24 @@ export function ExpressEventRouter(events: EventManagement, users: UserUseCases)
     const participants = await events.participants(req.params.id, user.id);
     res.json({ participants, participantCount: participants.length });
   });
+  if (chats) {
+    router.get('/activities/:id/chat/messages', async (req, res) => {
+      const user = await regularUser(req.headers.authorization);
+      res.json(await chats.history(req.params.id, user.id, req.query));
+    });
+    router.post('/activities/:id/chat/messages', rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false,
+      message: { error: { code: 'RATE_LIMITED', message: 'Estás enviando mensajes demasiado rápido.' } } }), async (req, res) => {
+      const user = await regularUser(req.headers.authorization);
+      const message = await chats.send(req.params.id, user.id, req.body);
+      void realtime?.broadcast(message).catch(() => console.error('No se pudo notificar un mensaje en tiempo real.'));
+      res.status(201).json({ message });
+    });
+    router.post('/activities/:id/chat/read', async (req, res) => {
+      const user = await regularUser(req.headers.authorization);
+      await chats.markRead(req.params.id, user.id, req.body?.messageId);
+      res.status(204).end();
+    });
+  }
   router.post('/activities/:id/join', async (req, res) => {
     const user = await regularUser(req.headers.authorization);
     res.json({ activity: await events.join(req.params.id, user.id) });

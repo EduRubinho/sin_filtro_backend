@@ -1,5 +1,7 @@
 import { EventManagement } from '../../event/application/EventManagement.ts';
 import { PostgresEventRepository } from '../../event/infrastructure/PostgresEventRepository.ts';
+import { ActivityChat } from '../../event/application/ActivityChat.ts';
+import { PostgresChatRepository } from '../../event/infrastructure/PostgresChatRepository.ts';
 import { UserRegister } from '../../user/application/UserRegister.ts';
 import { UserUpdateProfile } from '../../user/application/UserUpdateProfile.ts';
 import { UserGetCategories } from '../../user/application/UserGetCategories.ts';
@@ -63,7 +65,8 @@ export async function createServiceContainer(config: AppConfig) {
     await users.findByEmail(new UserEmail('schema-check@invalid.example'));
     const container = new ServiceContainer(users, await scryptPasswords(), memorySessions());
     const events = new EventManagement(new PostgresEventRepository(pool));
-    return { container, events, close: () => pool.end() };
+    const chats = new ActivityChat(new PostgresChatRepository(pool));
+    return { container, events, chats, close: () => pool.end() };
   } catch (error) {
     await pool.end();
     throw error;

@@ -1,7 +1,9 @@
 import type { MapSearch, MapActivities } from './MapActivity.ts';
 import type { ActivityDetail, ActivityParticipant, Event, EventInput } from './Event.ts';
+import type { UserPlans } from './UserPlan.ts';
 export interface EventRepository {
   findForMap(search: MapSearch): Promise<MapActivities>;
+  findPlans(userId: string): Promise<UserPlans>;
   create(input: EventInput): Promise<Event>;
   findAll(limit: number, offset: number): Promise<Event[]>;
   findById(id: string): Promise<Event | null>;

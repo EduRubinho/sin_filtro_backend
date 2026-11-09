@@ -4,6 +4,7 @@ import type { EventRepository } from '../domain/EventRepository.ts';
 import { patchEventInput, patchOwnedEventInput, type ActivityDetail, type ActivityParticipant, type Event, type EventInput } from '../domain/Event.ts';
 import { InvalidArgumentError } from '../../shared/domain/InvalidArgumentError.ts';
 import { ConflictError } from '../../shared/domain/ConflictError.ts';
+import type { PlanRelation, UserPlan, UserPlans } from '../domain/UserPlan.ts';
 
 const columns = `id::text, organizer_id::text AS "organizerId", category_id::text AS "categoryId",
  title, description, location_name AS "locationName", address, meeting_details AS "meetingDetails",
@@ -13,6 +14,7 @@ const columns = `id::text, organizer_id::text AS "organizerId", category_id::tex
 type Row = Omit<Event, 'startsAt' | 'endsAt' | 'completedAt' | 'createdAt' | 'updatedAt'> & {
   startsAt: Date; endsAt: Date; completedAt: Date | null; createdAt: Date; updatedAt: Date;
 };
+type PlanRow = Omit<UserPlan, 'startsAt' | 'endsAt'> & { startsAt: Date; endsAt: Date };
 function map(row: Row): Event {
   return { ...row, startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
@@ -35,6 +37,47 @@ export class PostgresEventRepository implements EventRepository {
         AND ST_DWithin(a.location, ST_SetSRID(ST_MakePoint($1,$2),4326)::geography, $3)
       ORDER BY "distanceMeters", a.id LIMIT 101`, [search.longitude, search.latitude, search.radiusMeters]);
     return { activities: result.rows.slice(0, 100).map(row => ({ ...row, startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString() })), hasMore: result.rows.length > 100 };
+  }
+  async findPlans(userId: string): Promise<UserPlans> {
+    await this.completeExpired(this.pool);
+    const result = await this.pool.query<PlanRow>(`
+      WITH related AS (
+        SELECT a.*, 'organizer'::text AS relation
+        FROM public.activities a
+        WHERE a.organizer_id=$1
+        UNION ALL
+        SELECT a.*, 'participant'::text AS relation
+        FROM public.activities a
+        JOIN public.activity_participants membership ON membership.activity_id=a.id
+        WHERE membership.user_id=$1 AND membership.status='joined' AND a.organizer_id<>$1
+      ), ranked AS (
+        SELECT a.id::text, a.title, a.location_name AS "locationName", c.name AS "categoryName",
+          a.starts_at AS "startsAt", a.ends_at AS "endsAt", a.status, a.capacity, a.relation,
+          (SELECT count(*)::int FROM public.activity_participants participant
+            WHERE participant.activity_id=a.id AND participant.status='joined' AND participant.user_id<>a.organizer_id) AS "participantCount",
+          CASE WHEN a.status='published' THEN TRUE
+            WHEN a.status='completed' THEN a.ends_at+interval '24 hours'>clock_timestamp()
+            WHEN a.status='cancelled' THEN a.updated_at+interval '24 hours'>clock_timestamp()
+            ELSE FALSE END AS "chatAvailable",
+          a.status<>'published' AS "chatReadOnly",
+          (SELECT count(*)::int FROM public.activity_messages message
+            JOIN public.activity_participants viewer ON viewer.activity_id=message.activity_id AND viewer.user_id=$1
+            WHERE message.activity_id=a.id AND message.deleted_at IS NULL AND message.sender_id<>$1
+              AND message.created_at>COALESCE(viewer.last_read_at,'-infinity'::timestamptz)) AS "unreadCount",
+          row_number() OVER (PARTITION BY a.relation ORDER BY
+            CASE a.status WHEN 'published' THEN 0 WHEN 'cancelled' THEN 1 ELSE 2 END,
+            CASE WHEN a.status='published' THEN a.starts_at END ASC,
+            CASE WHEN a.status<>'published' THEN a.ends_at END DESC, a.id DESC) AS position
+        FROM related a JOIN public.categories c ON c.id=a.category_id
+        WHERE a.deleted_at IS NULL AND a.status IN ('published','cancelled','completed')
+      )
+      SELECT id,title,"locationName","categoryName","startsAt","endsAt",status,capacity,"participantCount",relation,
+        "chatAvailable","chatReadOnly","unreadCount"
+      FROM ranked WHERE position<=100 ORDER BY relation,position`, [userId]);
+    const plans = result.rows.map(row => ({ ...row, relation: row.relation as PlanRelation,
+      startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString() }));
+    return { organized: plans.filter(plan => plan.relation === 'organizer'),
+      participating: plans.filter(plan => plan.relation === 'participant') };
   }
   private async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();

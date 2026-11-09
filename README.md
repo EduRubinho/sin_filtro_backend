@@ -44,12 +44,16 @@ Las rutas protegidas requieren `Authorization: Bearer <token>`.
 | `POST /auth/register` | Público: `{email, password}` → sesión, rol `user` y perfil pendiente. |
 | `POST /auth/login` | Público: `{email, password}` → sesión y rol real de la cuenta. |
 | `GET /activities/map?lat=-12.04&lng=-77.03&radiusMeters=5000` | Sesión activa: actividades publicadas, no eliminadas y no finalizadas, dentro del radio. |
+| `GET /activities/mine` | Usuario: actividades que organiza y actividades ajenas en las que continúa inscrito, hasta 100 por grupo. |
 | `GET /activities/:id` | Usuario: detalle, organizador, cupo, estado, participantes y relación del usuario actual. |
 | `GET /activities/:id/participants` | Usuario: participantes inscritos; el organizador se devuelve por separado en el detalle. |
 | `POST /activities/:id/join` | Usuario: se une si está publicada y tiene cupo. El organizador no puede inscribirse. |
 | `DELETE /activities/:id/join` | Usuario: retira su propia inscripción. |
 | `PATCH /activities/:id` | Organizador: edita su actividad sin cambiar organizador ni estado. |
 | `POST /activities/:id/cancel` | Organizador: cancela una actividad no finalizada. |
+| `GET /activities/:id/chat/messages?beforeId=&limit=30` | Miembro `joined`: historial paginado, información temporal y no leídos. |
+| `POST /activities/:id/chat/messages` | Miembro `joined`: envía `{body}` mientras la actividad está publicada. |
+| `POST /activities/:id/chat/read` | Miembro `joined`: marca hasta `{messageId}` como leído. |
 | `GET /categories` | Público: `{categories: [{id, name, slug}]}`; solo intereses activos. |
 | `GET /auth/me` | Sesión: `{user}` con rol/perfil actuales. |
 | `PATCH /auth/profile` | Usuario: `{displayName, bio, interestIds}` → `{user}`. Modifica solo su perfil. |
@@ -64,6 +68,12 @@ Las respuestas administrativas de usuarios al crear, consultar y editar incluyen
 `PATCH /users/:id` acepta exclusivamente `email` y/o `password`: no cambia rol, estado ni perfil. Las contraseñas, tanto al iniciar sesión como al registrarse o crearse/cambiarse administrativamente, deben tener 8–64 caracteres. Para personalizar el perfil, el usuario usa `PATCH /auth/profile` con `displayName`, `bio` (puede ser `""`) e `interestIds`; enviar los IDs reales de `GET /categories`. El perfil del administrador no se edita desde esa ruta por ahora.
 
 IDs BIGINT como texto. Contraseñas con scrypt. Sesiones de 30 minutos en memoria; reiniciar el backend las elimina. Login y registro tienen cada uno límite de 10 peticiones por IP/15 minutos. Cada petición protegida consulta el estado/rol actual; cuentas suspendidas/eliminadas no acceden. Cambiar contraseña o eliminar usuario revoca sesiones. El despliegue actual requiere un único proceso.
+
+## Chat temporal
+
+`ws://HOST:PORT/ws` (o `wss://` en HTTPS) notifica mensajes nuevos. El cliente autentica enviando primero `{type:"authenticate",token}` y después `{type:"subscribe",activityId}`; el token no viaja en la URL. Enviar mensajes continúa usando REST para aplicar transacciones, permisos y límite de 30 mensajes por minuto.
+
+Organizador y participantes `joined` acceden sin PIN. Al retirarse pierden acceso. Al finalizar o cancelar, el chat queda en lectura durante 24 horas y luego se oculta. Los mensajes se eliminan físicamente siete días después del cierre mediante una tarea que corre al iniciar y cada seis horas. Los avatares usan la inicial del nombre hasta implementar almacenamiento de fotos.
 
 ## Verificación y alcance
 
