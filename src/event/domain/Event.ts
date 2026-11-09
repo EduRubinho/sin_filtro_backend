@@ -13,6 +13,17 @@ export interface EventInput {
 export interface Event extends EventInput {
   id: string; completedAt: string | null; createdAt: string; updatedAt: string;
 }
+export interface ActivityParticipant {
+  id: string; displayName: string; joinedAt: string;
+}
+export interface ActivityDetail extends Event {
+  categoryName: string;
+  organizer: { id: string; displayName: string };
+  participants: ActivityParticipant[];
+  participantCount: number;
+  availableSpots: number | null;
+  viewer: { isOrganizer: boolean; isJoined: boolean };
+}
 export class EventNotFoundError extends DomainError {
   readonly code = 'EVENT_NOT_FOUND';
   constructor() { super('Evento no encontrado.'); }
@@ -95,6 +106,13 @@ export function patchEventInput(current: Event, input: unknown, now = Date.now()
   } else if (Date.parse(v.startsAt) <= now) throw new InvalidArgumentError('El inicio debe permanecer en el futuro.');
   if (current.status === 'draft' && v.status === 'published' && Date.parse(v.startsAt) <= now) throw new ConflictError('No se puede publicar un evento cuyo inicio ya pasó.');
   return v;
+}
+export function patchOwnedEventInput(current: Event, input: unknown, now = Date.now()): EventInput {
+  const patch = body(input);
+  if ('organizerId' in patch || 'status' in patch) {
+    throw new InvalidArgumentError('El organizador y el estado no se modifican desde este formulario.');
+  }
+  return patchEventInput(current, patch, now);
 }
 export function eventPagination(limit: unknown = '50', offset: unknown = '0') {
   if (typeof limit !== 'string' || !/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > 100 ||

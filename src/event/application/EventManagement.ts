@@ -16,6 +16,36 @@ export class EventManagement {
     if (!event) throw new EventNotFoundError();
     return event;
   }
+  async detail(id: unknown, viewerId: string) {
+    const event = await this.events.findDetail(eventId(id), eventId(viewerId));
+    if (!event) throw new EventNotFoundError();
+    return event;
+  }
+  async participants(id: unknown, viewerId: string) {
+    const participants = await this.events.findParticipants(eventId(id), eventId(viewerId));
+    if (!participants) throw new EventNotFoundError();
+    return participants;
+  }
+  async join(id: unknown, userId: string) {
+    const event = await this.events.join(eventId(id), eventId(userId));
+    if (!event) throw new EventNotFoundError();
+    return event;
+  }
+  async leave(id: unknown, userId: string) {
+    const event = await this.events.leave(eventId(id), eventId(userId));
+    if (!event) throw new EventNotFoundError();
+    return event;
+  }
+  async updateOwned(id: unknown, organizerId: string, input: unknown) {
+    const event = await this.events.updateOwned(eventId(id), eventId(organizerId), input);
+    if (!event) throw new EventNotFoundError();
+    return event;
+  }
+  async cancelOwned(id: unknown, organizerId: string) {
+    const event = await this.events.cancelOwned(eventId(id), eventId(organizerId));
+    if (!event) throw new EventNotFoundError();
+    return event;
+  }
   async update(id: unknown, input: unknown) {
     const event = await this.events.update(eventId(id), input);
     if (!event) throw new EventNotFoundError();

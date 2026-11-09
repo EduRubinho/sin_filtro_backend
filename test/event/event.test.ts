@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createEventInput, createPublishedEventInput, patchEventInput, eventPagination, eventId, type Event } from '../../src/event/domain/Event.ts';
+import { createEventInput, createPublishedEventInput, patchEventInput, patchOwnedEventInput, eventPagination, eventId, type Event } from '../../src/event/domain/Event.ts';
 const now = Date.parse('2026-01-01T00:00:00Z');
 const body = { organizerId: '2', categoryId: '1', title: 'Vóley', locationName: 'Parque', latitude: -12.04, longitude: -77.03,
   startsAt: '2026-02-01T17:00:00-05:00', endsAt: '2026-02-01T19:00:00-05:00' };
@@ -35,6 +35,12 @@ test('publicación de usuario obtiene organizador y estado de la sesión', () =>
   assert.equal(published.status, 'published');
   assert.throws(() => createPublishedEventInput({ ...withoutOrganizer, organizerId: '9' }, '7', now), { code: 'INVALID_INPUT' });
   assert.throws(() => createPublishedEventInput({ ...withoutOrganizer, status: 'draft' }, '7', now), { code: 'INVALID_INPUT' });
+});
+test('edición del organizador no permite cambiar identidad ni estado', () => {
+  const published = { ...event, status: 'published' as const };
+  assert.equal(patchOwnedEventInput(published, { title: 'Partido abierto' }, now).title, 'Partido abierto');
+  assert.throws(() => patchOwnedEventInput(published, { status: 'cancelled' }, now), { code: 'INVALID_INPUT' });
+  assert.throws(() => patchOwnedEventInput(published, { organizerId: '8' }, now), { code: 'INVALID_INPUT' });
 });
 test('IDs y paginación no aceptan arrays, inyección ni límites excesivos', () => {
   assert.deepEqual(eventPagination(), { limit: 50, offset: 0 });

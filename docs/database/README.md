@@ -2,7 +2,7 @@
 
 **13 tablas: PostgreSQL + PostGIS.** Registro abierto con cualquier correo válido. Sin universidad, campus ni mascotas. Flujo: cuenta e intereses → mapa → inscripción y chat → PIN compartido del evento → álbumes y consulta de recuerdos por distancia.
 
-Estado: registro, login con roles y personalización de perfil implementados usando `users`, `categories` y `user_interests`. También está implementado el CRUD administrativo de eventos sobre `activities`, con inscripción del organizador en la misma transacción. Los flujos de creación/inscripción por usuarios desde la app, PIN, chat y álbumes siguen pendientes. El único esquema de instalación es [schema.sql](schema.sql): ejecutarlo completo una sola vez en Query Tool de pgAdmin, sobre una **base nueva y vacía** con PostGIS disponible. Crea las 13 tablas y cuatro intereses iniciales, sin cuentas precargadas ni importación de datos anteriores. `queries.sql` contiene consultas parametrizadas para futuras funciones; no es un script de instalación.
+Estado: registro, login con roles, perfil y flujo básico de actividades implementados. Un usuario publica, consulta detalles, edita o cancela lo que organiza y se une o retira de actividades ajenas. El administrador conserva su CRUD independiente. PIN, chat y álbumes siguen pendientes. El único esquema de instalación es [schema.sql](schema.sql): ejecutarlo completo una sola vez en Query Tool de pgAdmin, sobre una **base nueva y vacía** con PostGIS disponible. Crea las 13 tablas y cuatro intereses iniciales, sin cuentas precargadas ni importación de datos anteriores. `queries.sql` contiene consultas parametrizadas para funciones futuras; no es un script de instalación.
 
 `users` se crea directamente con todos sus atributos, incluido `role`. Los dos `ALTER TABLE` del esquema únicamente añaden claves foráneas entre actividades, participantes y códigos, una vez creadas esas tablas; la relación circular actividad/organizador requiere declarar una FK después. No modifican usuarios ni migran una base antigua.
 
@@ -45,7 +45,7 @@ Identificadores BIGINT identity salvo los códigos de asistencia (UUID) y tablas
 | `user_sessions` | `id` | FK usuario; hash de token de sesión, vencimiento y revocación. |
 | `password_reset_tokens` | `id` | FK usuario; hash del token de recuperación, vencimiento y uso único. |
 
-Una inscripción por persona/evento evita duplicados. El organizador también tiene una inscripción: crear ambas filas en la misma transacción, como exige la FK diferida. El cupo incluye al organizador. No se duplica el rol organizador en participantes: se obtiene de `activities.organizer_id`.
+Una inscripción por persona/evento evita duplicados. El organizador también tiene una fila técnica: crear ambas filas en la misma transacción, como exige la FK diferida. Esa fila no consume cupo ni permite que el organizador se inscriba otra vez. El rol organizador se obtiene de `activities.organizer_id`.
 
 ## 3. Relaciones
 
@@ -145,7 +145,7 @@ Ejemplo: un vóley terminado a 300 m con álbum privado aparece solo para asiste
 - `user_locations`: solo último GPS, precisión y vencimiento; radar apagado por defecto, consentimiento explícito y limpieza de posiciones vencidas. No es historial de movimientos y no es necesario para buscar recuerdos.
 - FK/CHECK aseguran integridad, **no permisos**. Acciones autorizadas por casos de uso; móvil/web nunca reciben acceso directo al rol SQL del backend.
 - Onboarding: nombre y al menos dos intereses, sin institución; validar mínimo en la transacción de completar/modificar intereses. El CHECK exige nombre, el mínimo de intereses corresponde al backend.
-- Inscripción/cupo: bloquear actividad, contar participantes `joined` y después insertar/reactivar; mismo bloqueo al cambiar cupo. Organizador permanece inscrito hasta transferir organización o cancelar. No borrar inscripciones con mensajes: cambiar su estado.
+- Inscripción/cupo: bloquear actividad, contar participantes `joined` distintos del organizador y después insertar/reactivar; mismo bloqueo al cambiar cupo. El organizador conserva una fila técnica para las claves foráneas, pero no ocupa una plaza ni puede usar el endpoint de inscripción. No borrar inscripciones con mensajes: cambiar su estado.
 - Chat: inscripción y cuenta activas, sin exigir PIN antes del encuentro. `last_read_at` permite lectura por persona. Los miembros se obtienen de participantes, sin tabla de chats duplicada.
 - Álbum: uno por actividad, creado/administrado por organizador mediante backend. Esa gestión de metadatos no evita la matriz de permisos de contenido. “Mis álbumes” consulta creador; “Compartidos” consulta asistencia a eventos ajenos.
 - Subida: autorizar antes de cargar al almacenamiento y otra vez al confirmar metadatos; validar que el archivo temporal corresponda al usuario/álbum. Bloquear actividad → álbum → participante, coherente con revocaciones/borrados. Limpiar archivos temporales abandonados. `insert_album_photo` vuelve a comprobar permisos, pero debe usarse dentro de ese protocolo.
@@ -157,7 +157,7 @@ Referencia de transacciones: [bloqueos de filas en PostgreSQL](https://www.postg
 
 ## 8. Integración y validación pendiente
 
-Se conservan `users.id`, `email`, `password_hash`, `created_at`. Módulos hexagonales sugeridos: `user`, `activity` (incluye asistencia), `chat`, `album`. Compartir pool y `DATABASE_URL`; no un módulo/variable por tabla. Registro, perfil y CRUD administrativo de eventos están integrados; el flujo de usuarios en actividades, asistencia, chat y álbumes aún requiere sus casos de uso.
+Se conservan `users.id`, `email`, `password_hash`, `created_at`. Módulos hexagonales sugeridos: `user`, `activity` (incluye asistencia), `chat`, `album`. Compartir pool y `DATABASE_URL`; no un módulo/variable por tabla. Registro, perfil, CRUD administrativo y participación básica en actividades están integrados; PIN de asistencia, chat y álbumes aún requieren sus casos de uso.
 
 Comprobar en una base aislada con PostGIS antes de integrar:
 

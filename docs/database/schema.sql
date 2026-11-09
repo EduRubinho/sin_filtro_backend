@@ -69,6 +69,7 @@ CREATE TABLE public.activities (
     time_zone TEXT NOT NULL DEFAULT 'America/Lima',
     price NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (price >= 0 AND price <> 'NaN'::numeric),
     currency VARCHAR(3) NOT NULL DEFAULT 'PEN' CHECK (currency ~ '^[A-Z]{3}$'),
+    -- Máximo de participantes; el organizador no consume una plaza.
     capacity INTEGER CHECK (capacity > 0),
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'cancelled', 'completed')),
     completed_at TIMESTAMPTZ,
