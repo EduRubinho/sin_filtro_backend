@@ -5,6 +5,13 @@ const now = Date.parse('2026-01-01T00:00:00Z');
 const body = { organizerId: '2', categoryId: '1', title: 'Vóley', locationName: 'Parque', latitude: -12.04, longitude: -77.03,
   startsAt: '2026-02-01T17:00:00-05:00', endsAt: '2026-02-01T19:00:00-05:00' };
 const event: Event = { ...createEventInput(body, now), id: '1', createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(), completedAt: null };
+test('la privacidad se elige en borrador y queda fija al publicar, incluso para administrador', () => {
+  assert.equal(patchEventInput(event, { albumVisibility: 'public' }, now).albumVisibility, 'public');
+  for (const status of ['published', 'completed', 'cancelled'] as const) {
+    assert.throws(() => patchEventInput({ ...event, status }, { albumVisibility: 'public' }, now), { code: 'CONFLICT' });
+  }
+  assert.throws(() => createEventInput({ ...body, albumVisibility: 'unknown' }, now), { code: 'INVALID_INPUT' });
+});
 test('evento valida fechas, coordenadas, dinero, estado y campos de solo lectura', () => {
   assert.equal(event.startsAt, '2026-02-01T22:00:00.000Z');
   assert.equal(event.status, 'draft');

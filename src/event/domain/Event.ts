@@ -5,6 +5,7 @@ import { DomainError } from '../../shared/domain/DomainError.ts';
 export const eventStatuses = ['draft', 'published', 'cancelled', 'completed'] as const;
 export type EventStatus = typeof eventStatuses[number];
 export interface EventInput {
+  albumVisibility: 'public' | 'private';
   organizerId: string; categoryId: string; title: string; description: string;
   locationName: string; address: string | null; meetingDetails: string | null;
   latitude: number; longitude: number; startsAt: string; endsAt: string;
@@ -17,6 +18,7 @@ export interface ActivityParticipant {
   id: string; displayName: string; joinedAt: string;
 }
 export interface ActivityDetail extends Event {
+  album: { enabled: boolean; canView: boolean; canUpload: boolean };
   categoryName: string;
   organizer: { id: string; displayName: string };
   participants: ActivityParticipant[];
@@ -34,7 +36,7 @@ export function eventId(value: unknown): string {
   }
   return value;
 }
-const fields = ['organizerId', 'categoryId', 'title', 'description', 'locationName', 'address', 'meetingDetails',
+const fields = ['albumVisibility', 'organizerId', 'categoryId', 'title', 'description', 'locationName', 'address', 'meetingDetails',
   'latitude', 'longitude', 'startsAt', 'endsAt', 'timeZone', 'price', 'currency', 'capacity', 'status'];
 function body(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input) || !Object.keys(input).length ||
@@ -57,6 +59,7 @@ function timestamp(value: unknown): string {
 }
 function validate(input: Record<string, unknown>): EventInput {
   const v = input;
+  if (!['public', 'private'].includes(v.albumVisibility as string)) throw new InvalidArgumentError('Privacidad del álbum inválida.');
   const latitude = v.latitude, longitude = v.longitude;
   if (typeof latitude !== 'number' || !Number.isFinite(latitude) || Math.abs(latitude) > 90 ||
     typeof longitude !== 'number' || !Number.isFinite(longitude) || Math.abs(longitude) > 180) throw new InvalidArgumentError('Coordenadas inválidas.');
@@ -73,14 +76,14 @@ function validate(input: Record<string, unknown>): EventInput {
   const capacity = v.capacity;
   if (capacity !== null && (typeof capacity !== 'number' || !Number.isInteger(capacity) || capacity < 1 || capacity > 2147483647)) throw new InvalidArgumentError('capacity debe ser un entero positivo o null.');
   if (!eventStatuses.includes(v.status as EventStatus)) throw new InvalidArgumentError('Estado de evento inválido.');
-  return { organizerId: eventId(v.organizerId), categoryId: eventId(v.categoryId), title: text(v.title, 'title', 140),
+  return { albumVisibility: v.albumVisibility as 'public' | 'private', organizerId: eventId(v.organizerId), categoryId: eventId(v.categoryId), title: text(v.title, 'title', 140),
     description: text(v.description, 'description', 4000, true), locationName: text(v.locationName, 'locationName', 160),
     address: v.address === null ? null : text(v.address, 'address', 500, true),
     meetingDetails: v.meetingDetails === null ? null : text(v.meetingDetails, 'meetingDetails', 250, true),
     latitude, longitude, startsAt, endsAt, timeZone, price, currency, capacity: capacity as number | null, status: v.status as EventStatus };
 }
 export function createEventInput(input: unknown, now = Date.now()): EventInput {
-  const v = validate({ description: '', address: null, meetingDetails: null, timeZone: 'America/Lima', price: 0, currency: 'PEN', capacity: null, status: 'draft', ...body(input) });
+  const v = validate({ albumVisibility: 'private', description: '', address: null, meetingDetails: null, timeZone: 'America/Lima', price: 0, currency: 'PEN', capacity: null, status: 'draft', ...body(input) });
   if (!['draft', 'published'].includes(v.status)) throw new InvalidArgumentError('Un evento nuevo debe estar en draft o published.');
   if (Date.parse(v.startsAt) <= now) throw new InvalidArgumentError('El evento debe empezar en el futuro.');
   return v;
@@ -96,6 +99,7 @@ export function patchEventInput(current: Event, input: unknown, now = Date.now()
   const patch = body(input);
   if ('organizerId' in patch) throw new InvalidArgumentError('El organizador no puede cambiarse desde este endpoint.');
   const v = validate({ ...current, ...patch });
+  if (current.status !== 'draft' && v.albumVisibility !== current.albumVisibility) throw new ConflictError('La privacidad del álbum queda fija desde la publicación.');
   if (['cancelled', 'completed'].includes(current.status) && v.status !== current.status) throw new ConflictError('Un evento cerrado no puede reabrirse.');
   if (current.status === 'published' && v.status === 'draft') throw new ConflictError('Un evento publicado no puede volver a borrador.');
   if (v.status === 'completed' && (current.status === 'draft' || Date.parse(current.startsAt) > now)) throw new ConflictError('Solo se puede finalizar un evento publicado que ya comenzó.');

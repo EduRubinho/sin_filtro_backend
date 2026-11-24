@@ -4,7 +4,7 @@ import { createEventInput, createPublishedEventInput, eventId, eventPagination, 
 export class EventManagement {
   private readonly events: EventRepository;
   constructor(events: EventRepository) { this.events = events; }
-  map(query: Record<string, unknown>) { return this.events.findForMap(mapSearch(query)); }
+  map(query: Record<string, unknown>, viewerId?: string) { return this.events.findForMap({ ...mapSearch(query), viewerId }); }
   plans(userId: string) { return this.events.findPlans(eventId(userId)); }
   create(input: unknown) { return this.events.create(createEventInput(input)); }
   createPublished(organizerId: string, input: unknown) { return this.events.create(createPublishedEventInput(input, organizerId)); }

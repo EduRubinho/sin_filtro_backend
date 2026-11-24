@@ -10,7 +10,10 @@ Desde `backend`, ejecutar `npm ci`. Si falta `.env`, copiar `.env.example` y com
 DATABASE_URL=postgresql://usuario:password@localhost:5432/sin_filtro
 PORT=3000
 NODE_ENV=development
+ATTENDANCE_PIN_SECRET=<64 caracteres hexadecimales aleatorios>
 ```
+
+Generar el secreto una vez con `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` y guardarlo solo en `.env`. No compartirlo ni cambiarlo en cada arranque; si se cambia, regenerar los PIN vigentes.
 
 La base indicada debe existir. `5432` es el puerto de PostgreSQL y `PORT` es el de la API.
 
@@ -51,6 +54,10 @@ Las rutas protegidas requieren `Authorization: Bearer <token>`.
 | `DELETE /activities/:id/join` | Usuario: retira su propia inscripción. |
 | `PATCH /activities/:id` | Organizador: edita su actividad sin cambiar organizador ni estado. |
 | `POST /activities/:id/cancel` | Organizador: cancela una actividad no finalizada. |
+| `GET /activities/:id/attendance` | Inscrito: ventana, asistencia propia y contadores. El organizador recibe además la lista de confirmados/pendientes. Nunca devuelve el PIN. |
+| `POST /activities/:id/attendance/pin` | Organizador: genera o regenera el PIN; devuelve `{pin, expiresAt}` una sola vez, sin caché. |
+| `DELETE /activities/:id/attendance/pin` | Organizador: revoca el PIN. No borra asistencias confirmadas. |
+| `POST /activities/:id/attendance/validate` | Inscrito: `{pin: "001234"}` → `{validatedAt}`. La identidad sale de la sesión. |
 | `GET /activities/:id/chat/messages?beforeId=&limit=30` | Miembro `joined`: historial paginado, información temporal y no leídos. |
 | `POST /activities/:id/chat/messages` | Miembro `joined`: envía `{body}` mientras la actividad está publicada. |
 | `POST /activities/:id/chat/read` | Miembro `joined`: marca hasta `{messageId}` como leído. |
@@ -62,6 +69,14 @@ Las rutas protegidas requieren `Authorization: Bearer <token>`.
 | `POST/GET /events`, `GET/PATCH/DELETE /events/:id` | Solo administrador. CRUD de eventos de usuarios, almacenados en `activities`. |
 
 El administrador gestiona datos; no organiza ni participa en eventos con sus credenciales administrativas. El CRUD no incluye crear/modificar administradores. Los usuarios normales publican, editan y cancelan sus propias actividades, y pueden unirse o retirarse de actividades ajenas. Ver [ejemplos para Thunder Client](docs/admin-api.md).
+
+## Asistencia con PIN (bloque 4)
+
+Implementada sobre `activity_checkin_codes` y `activity_participants` del esquema existente: no volver a ejecutar el esquema sobre una BD ya creada. Abre 15 minutos antes del inicio y cierra al finalizar por hora/estado o cancelar. Cada PIN dura como máximo 15 minutos, sin superar el fin. Se genera con aleatoriedad criptográfica y se guarda solo HMAC-SHA-256 vinculado al evento y a su generación.
+
+Cinco fallos por usuario/evento bloquean 15 minutos en PostgreSQL; regenerar el PIN no reinicia intentos. Hay límite adicional por IP (60 operaciones/15 minutos) y 30 segundos entre emisiones por evento. La validación es idempotente y se serializa con edición/cancelación mediante bloqueo de la actividad. El organizador puede confirmar explícitamente su asistencia ingresando el PIN vigente; no ocupa cupo ni incrementa los contadores. El chat no consulta el PIN. El detalle devuelve los permisos del futuro álbum; la galería y subida de fotos están disponibles en el módulo de recuerdos.
+
+Prueba aislada: `RUN_POSTGRES_TESTS=1 node --env-file=.env --test test/integration/attendance-postgres.test.ts` crea y elimina una BD temporal; requiere permiso de creación de bases.
 
 Las respuestas administrativas de usuarios al crear, consultar y editar incluyen `id`, `email`, `role`, `status`, `profile` y `createdAt`; el listado usa `{users: [...]}` y las demás `{user: {...}}`. Nunca se devuelve la contraseña ni su hash. `profile` contiene `displayName`, `bio`, `interestIds` y `completed`.
 
@@ -79,7 +94,7 @@ Organizador y participantes `joined` acceden sin PIN. Al retirarse pierden acces
 
 `npm run typecheck`, `npm test`, `npm run build`. `npm start` ejecuta la compilación de `dist`; los CRUD están protegidos por rol también en producción. `npm test` usa memoria/dobles y omite la integración real. `npm run test:integration` verifica los endpoints con PostgreSQL/PostGIS: crea y elimina una base temporal propia en el servidor de `DATABASE_URL` (requiere permiso CREATEDB y PostGIS disponible); no modifica los datos del proyecto.
 
-El [modelo social de 13 tablas](docs/database/README.md) ya soporta el CRUD administrativo, publicación, detalle, edición, cancelación e inscripción de usuarios en actividades. PIN, chat y álbumes siguen pendientes. `docs/database/schema.sql` es un esquema completo para una base nueva, no se ejecuta sobre tablas existentes. También quedan pendientes recuperación de contraseña, fotos de perfil y sesiones persistentes.
+El [modelo social de 13 tablas](docs/database/README.md) ya soporta el CRUD administrativo, publicación, detalle, edición, cancelación e inscripción de usuarios en actividades. PIN y chat están implementados; la galería de fotos está implementada. `docs/database/schema.sql` es un esquema completo para una base nueva, no se ejecuta sobre tablas existentes. También quedan pendientes recuperación de contraseña, fotos de perfil y sesiones persistentes.
 
 Solo se versiona `.env.example`; `.env` y variantes locales están ignorados.
 
@@ -87,4 +102,18 @@ Solo se versiona `.env.example`; `.env` y variantes locales están ignorados.
 
 `GET /activities/map` requiere Bearer de una cuenta activa (un usuario normal puede consultarlo). `lat` y `lng` son obligatorios; `radiusMeters` vale 5000 por defecto y admite hasta 10000. Responde `{activities: [...], hasMore: boolean}`, hasta 100 resultados ordenados por distancia e ID. Incluye coordenadas, título, descripción, lugar, categoría, fechas, zona, precio, moneda y distancia; no expone correos ni datos administrativos.
 
-Usa `ST_DWithin` sobre el índice espacial existente. Incluye futuros y en curso (`published` y `ends_at > ahora`); excluye borradores, cancelados, completados, eliminados y terminados por hora. La consulta no persiste la ubicación ni inscribe al usuario. El CRUD `/events` continúa reservado a administradores.
+Usa `ST_DWithin` sobre el índice espacial existente. `phase=active` (predeterminado) incluye próximas y en curso; `phase=finished` incluye finalizadas por estado u hora con álbum público o asistencia validada, no revocada ni expulsada. Excluye borradores, canceladas, actividades eliminadas y álbumes eliminados. Devuelve `phase`: `upcoming`, `ongoing` o `finished`. La consulta no persiste la ubicación ni inscribe al usuario. El CRUD `/events` continúa reservado a administradores.
+
+## Privacidad y activación de álbumes
+
+Antes de arrancar esta versión sobre una base existente, ejecutar una vez [album-privacy.sql](docs/database/album-privacy.sql) en Query Tool. En una base vacía usar solo `schema.sql`. La migración conserva la privacidad de álbumes existentes y usa `private` para las demás actividades.
+
+`albumVisibility`: `public` o `private` en creación (predeterminado `private`). Se puede cambiar en borrador; desde la publicación queda inmutable tanto para organizador como administrador, con protección adicional en PostgreSQL.
+
+`GET /activities/:id` devuelve `album: { enabled, canView, canUpload }`. El álbum se materializa al consultar el detalle finalizado, mediante inserción idempotente. Cancelar no activa álbum. Solo asistencia validada permite subir; en privados también se exige para ver. La foto actual es ilustrativa, no una foto privada. El módulo de recuerdos aplica estos permisos al listado, galería, subida y lectura de archivos. El cliente nunca autoriza por sí solo una operación.
+
+## Recuerdos y fotos
+
+Implementado: “Mis recuerdos”, búsqueda por radio, galería paginada, subida de fotos y edición/eliminación propias. Archivos privados en `./storage/photos` (opcional `PHOTO_STORAGE_DIR`); nunca se exponen como carpeta estática ni se suben a Git. PostgreSQL guarda referencia, autor, descripción, bytes y dimensiones. Respaldar **base y carpeta** juntos. En un despliegue se necesita disco persistente compartido o sustituir el adaptador por almacenamiento de objetos.
+
+Esta entrega ya aplicó `docs/database/album-photos.sql` a la base local. **No necesitas ejecutarlo de nuevo.** En otra base existente se puede ejecutar; es reejecutable. Una base nueva usa solo `schema.sql`. [Rutas, reglas y archivos modificados](docs/memories.md).

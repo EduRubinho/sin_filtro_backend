@@ -76,7 +76,7 @@ test('CRUD administrativo real con PostgreSQL/PostGIS y permisos HTTP', { skip: 
     for (const change of [{ organizerId: '1' }, { organizerId: '99' }, { categoryId: '999' }, { latitude: 91 }]) {
       assert.equal((await request('/events', 'POST', { ...input, ...change }, admin.token)).status, 400);
     }
-    assert.equal((await pool.query('SELECT count(*) FROM public.activities')).rows[0].count, '0');
+    assert.equal((await pool.query('SELECT count(*) FROM public.activities')).rows[0].count, '1');
     const res = await request('/events', 'POST', input, admin.token);
     assert.equal(res.status, 201);
     const { event } = await res.json();
@@ -123,6 +123,8 @@ test('CRUD administrativo real con PostgreSQL/PostGIS y permisos HTTP', { skip: 
     assert.equal((await request(route, 'PATCH', { organizerId: '3' }, admin.token)).status, 400);
     assert.equal((await request(route, 'PATCH', { status: 'completed' }, admin.token)).status, 409);
     await pool.query('INSERT INTO public.activity_participants(activity_id,user_id) VALUES($1,3)', [event.id]);
+    const extra = (await pool.query("INSERT INTO public.users(email,password_hash) VALUES('extra@test.com','hash') RETURNING id")).rows[0].id;
+    await pool.query('INSERT INTO public.activity_participants(activity_id,user_id) VALUES($1,$2)', [event.id, extra]);
     assert.equal((await request(route, 'PATCH', { title: 'NO GUARDAR', capacity: 1 }, admin.token)).status, 409);
     assert.equal((await (await request(route, 'GET', undefined, admin.token)).json()).event.title, 'Vóley editado');
     assert.equal((await request('/users/2', 'DELETE', undefined, admin.token)).status, 409);

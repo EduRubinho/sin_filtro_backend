@@ -1,3 +1,4 @@
+import { ExpressAlbumRouter } from './album/infrastructure/ExpressAlbumRouter.ts';
 import { Router } from 'express';
 import { ExpressEventRouter } from './event/infrastructure/ExpressEventRouter.ts';
 import { createServiceContainer } from './shared/infrastructure/ServiceContainer.ts';
@@ -17,7 +18,7 @@ try {
 }
 
 const realtime = new ActivityChatRealtime();
-const app = createHttpApp(Router().use(ExpressEventRouter(services.events, services.container.user, services.chats, realtime), ExpressUserRouter(services.container.user)));
+const app = createHttpApp(Router().use(ExpressAlbumRouter(services.albums, services.container.user), ExpressEventRouter(services.events, services.container.user, services.chats, realtime, services.attendance), ExpressUserRouter(services.container.user)));
 const server = app.listen(config.port, '0.0.0.0', () => console.log(`API escuchando en puerto ${config.port}`));
 realtime.attach(server, token => services.container.user.getCurrent.execute(token), services.chats);
 void services.chats.purgeExpired().catch(() => console.error('No se pudo ejecutar la limpieza inicial del chat.'));

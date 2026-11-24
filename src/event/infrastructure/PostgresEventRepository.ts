@@ -10,7 +10,7 @@ const columns = `id::text, organizer_id::text AS "organizerId", category_id::tex
  title, description, location_name AS "locationName", address, meeting_details AS "meetingDetails",
  ST_Y(location::geometry) AS latitude, ST_X(location::geometry) AS longitude,
  starts_at AS "startsAt", ends_at AS "endsAt", time_zone AS "timeZone", price::float8,
- currency, capacity, status, completed_at AS "completedAt", created_at AS "createdAt", updated_at AS "updatedAt"`;
+ album_visibility AS "albumVisibility", currency, capacity, status, completed_at AS "completedAt", created_at AS "createdAt", updated_at AS "updatedAt"`;
 type Row = Omit<Event, 'startsAt' | 'endsAt' | 'completedAt' | 'createdAt' | 'updatedAt'> & {
   startsAt: Date; endsAt: Date; completedAt: Date | null; createdAt: Date; updatedAt: Date;
 };
@@ -21,21 +21,28 @@ function map(row: Row): Event {
 }
 function values(v: EventInput) {
   return [v.organizerId, v.categoryId, v.title, v.description, v.locationName, v.address, v.meetingDetails,
-    v.longitude, v.latitude, v.startsAt, v.endsAt, v.timeZone, v.price, v.currency, v.capacity, v.status];
+    v.longitude, v.latitude, v.startsAt, v.endsAt, v.timeZone, v.price, v.currency, v.capacity, v.status, v.albumVisibility];
 }
 export class PostgresEventRepository implements EventRepository {
   private readonly pool: Pool;
   constructor(pool: Pool) { this.pool = pool; }
   async findForMap(search: MapSearch): Promise<MapActivities> {
     const result = await this.pool.query<Omit<MapActivity, 'startsAt' | 'endsAt'> & { startsAt: Date; endsAt: Date }>(`
-      SELECT a.id::text, a.title, a.description, a.location_name AS "locationName", c.name AS "categoryName",
+      SELECT CASE WHEN a.status='completed' OR a.ends_at<=CURRENT_TIMESTAMP THEN 'finished' WHEN a.starts_at<=CURRENT_TIMESTAMP THEN 'ongoing' ELSE 'upcoming' END AS phase,
+        a.id::text, a.title, a.description, a.location_name AS "locationName", c.name AS "categoryName",
         ST_Y(a.location::geometry) AS latitude, ST_X(a.location::geometry) AS longitude,
         a.starts_at AS "startsAt", a.ends_at AS "endsAt", a.time_zone AS "timeZone", a.price::float8, a.currency,
         ST_Distance(a.location, ST_SetSRID(ST_MakePoint($1,$2),4326)::geography) AS "distanceMeters"
       FROM public.activities a JOIN public.categories c ON c.id=a.category_id
-      WHERE a.status='published' AND a.deleted_at IS NULL AND a.ends_at > CURRENT_TIMESTAMP
+      WHERE a.deleted_at IS NULL AND (
+        ($4='active' AND a.status='published' AND a.ends_at>CURRENT_TIMESTAMP)
+        OR ($4='finished' AND (a.status='completed' OR (a.status='published' AND a.ends_at<=CURRENT_TIMESTAMP))
+          AND NOT EXISTS (SELECT 1 FROM public.albums b WHERE b.activity_id=a.id AND b.deleted_at IS NOT NULL)
+          AND (a.album_visibility='public' OR EXISTS (SELECT 1 FROM public.activity_participants p
+            WHERE p.activity_id=a.id AND p.user_id=$5 AND p.status<>'removed'
+              AND p.attendance_validated_at IS NOT NULL AND p.attendance_revoked_at IS NULL))))
         AND ST_DWithin(a.location, ST_SetSRID(ST_MakePoint($1,$2),4326)::geography, $3)
-      ORDER BY "distanceMeters", a.id LIMIT 101`, [search.longitude, search.latitude, search.radiusMeters]);
+      ORDER BY "distanceMeters", a.id LIMIT 101`, [search.longitude, search.latitude, search.radiusMeters, search.phase ?? 'active', search.viewerId ?? null]);
     return { activities: result.rows.slice(0, 100).map(row => ({ ...row, startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString() })), hasMore: result.rows.length > 100 };
   }
   async findPlans(userId: string): Promise<UserPlans> {
@@ -118,7 +125,16 @@ export class PostgresEventRepository implements EventRepository {
       WHERE a.id=$1`, [id]);
     const participants = people.rows.map(person => ({ ...person, joinedAt: person.joinedAt.toISOString() }));
     const participantCount = participants.length;
-    return { ...event, categoryName: organizer.rows[0].categoryName,
+    const attendance = await client.query(`SELECT 1 FROM public.activity_participants
+      WHERE activity_id=$1 AND user_id=$2 AND status<>'removed'
+        AND attendance_validated_at IS NOT NULL AND attendance_revoked_at IS NULL`, [id, viewerId]);
+    const existingAlbum = await client.query('SELECT deleted_at FROM public.albums WHERE activity_id=$1', [id]);
+    const enabled = event.status === 'completed' && !existingAlbum.rows[0]?.deleted_at;
+    const validated = !!attendance.rowCount;
+    // El álbum se materializa al consultar una actividad finalizada; nunca al publicar/cancelar.
+    if (enabled) await client.query(`INSERT INTO public.albums(activity_id,created_by,title,visibility)
+      VALUES($1,$2,$3,$4) ON CONFLICT(activity_id) DO NOTHING`, [id,event.organizerId,event.title,event.albumVisibility]);
+    return { ...event, album: { enabled, canView: enabled && (event.albumVisibility === 'public' || validated), canUpload: enabled && validated }, categoryName: organizer.rows[0].categoryName,
       organizer: { id: organizer.rows[0].id, displayName: organizer.rows[0].displayName }, participants, participantCount,
       availableSpots: event.capacity === null ? null : Math.max(0, event.capacity - participantCount),
       viewer: { isOrganizer: event.organizerId === viewerId, isJoined: participants.some(person => person.id === viewerId) } };
@@ -131,8 +147,8 @@ export class PostgresEventRepository implements EventRepository {
       await this.category(client, input.categoryId);
       const result = await client.query<Row>(`INSERT INTO public.activities
         (organizer_id, category_id, title, description, location_name, address, meeting_details, location,
-         starts_at, ends_at, time_zone, price, currency, capacity, status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,ST_SetSRID(ST_MakePoint($8,$9),4326)::geography,$10,$11,$12,$13,$14,$15,$16)
+         starts_at, ends_at, time_zone, price, currency, capacity, status, album_visibility)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,ST_SetSRID(ST_MakePoint($8,$9),4326)::geography,$10,$11,$12,$13,$14,$15,$16,$17)
         RETURNING ${columns}`, values(input));
       const event = map(result.rows[0]);
       await client.query('INSERT INTO public.activity_participants (activity_id, user_id) VALUES ($1,$2)', [event.id, input.organizerId]);
@@ -162,14 +178,16 @@ export class PostgresEventRepository implements EventRepository {
   async join(id: string, userId: string): Promise<ActivityDetail | null> {
     const found = await this.transaction(async client => {
       await this.completeExpired(client, id);
-      const result = await client.query<{ organizerId: string; status: string; capacity: number | null }>(`
-        SELECT organizer_id::text AS "organizerId", status, capacity FROM public.activities
+      const result = await client.query<{ organizerId: string; status: string; capacity: number | null; ends_at: Date }>(`
+        SELECT organizer_id::text AS "organizerId", status, capacity, ends_at FROM public.activities
         WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, [id]);
       const event = result.rows[0];
       if (!event) return false;
       if (event.organizerId === userId) throw new ConflictError('El organizador ya pertenece a la actividad y no puede inscribirse.');
-      if (event.status !== 'published') throw new ConflictError('Solo puedes unirte a una actividad publicada y vigente.');
+      const now = (await client.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0].now;
+      if (event.status !== 'published' || event.ends_at <= now) throw new ConflictError('Solo puedes unirte a una actividad publicada y vigente.');
       const existing = await client.query<{ status: string }>('SELECT status FROM public.activity_participants WHERE activity_id=$1 AND user_id=$2', [id, userId]);
+      if (existing.rows[0]?.status === 'removed') throw new ConflictError('No puedes volver a inscribirte después de una expulsión.');
       if (existing.rows[0]?.status === 'joined') return true;
       const count = await client.query<{ count: string }>(`SELECT count(*) FROM public.activity_participants
         WHERE activity_id=$1 AND status='joined' AND user_id <> $2`, [id, event.organizerId]);
@@ -211,8 +229,8 @@ export class PostgresEventRepository implements EventRepository {
       await client.query(`UPDATE public.activities SET
         category_id=$2,title=$3,description=$4,location_name=$5,address=$6,meeting_details=$7,
         location=ST_SetSRID(ST_MakePoint($8,$9),4326)::geography, starts_at=$10,ends_at=$11,time_zone=$12,
-        price=$13,currency=$14,capacity=$15,status=$16,updated_at=clock_timestamp()
-        WHERE id=$17 AND organizer_id=$1`, [...values(next), id]);
+        price=$13,currency=$14,capacity=$15,status=$16,album_visibility=$17,updated_at=clock_timestamp()
+        WHERE id=$18 AND organizer_id=$1`, [...values(next), id]);
       return true;
     });
     return found ? this.findDetail(id, organizerId) : null;
@@ -245,9 +263,9 @@ export class PostgresEventRepository implements EventRepository {
       const result = await client.query<Row>(`UPDATE public.activities SET
         category_id=$2,title=$3,description=$4,location_name=$5,address=$6,meeting_details=$7,
         location=ST_SetSRID(ST_MakePoint($8,$9),4326)::geography, starts_at=$10,ends_at=$11,time_zone=$12,
-        price=$13,currency=$14,capacity=$15,status=$16,
+        price=$13,currency=$14,capacity=$15,status=$16,album_visibility=$17,
         completed_at=CASE WHEN $16='completed' THEN COALESCE(completed_at,clock_timestamp()) ELSE NULL END,
-        updated_at=clock_timestamp() WHERE id=$17 AND organizer_id=$1 RETURNING ${columns}`, [...values(next), id]);
+        updated_at=clock_timestamp() WHERE id=$18 AND organizer_id=$1 RETURNING ${columns}`, [...values(next), id]);
       return map(result.rows[0]);
     });
   }
