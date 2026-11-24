@@ -117,3 +117,5 @@ Antes de arrancar esta versión sobre una base existente, ejecutar una vez [albu
 Implementado: “Mis recuerdos”, búsqueda por radio, galería paginada, subida de fotos y edición/eliminación propias. Archivos privados en `./storage/photos` (opcional `PHOTO_STORAGE_DIR`); nunca se exponen como carpeta estática ni se suben a Git. PostgreSQL guarda referencia, autor, descripción, bytes y dimensiones. Respaldar **base y carpeta** juntos. En un despliegue se necesita disco persistente compartido o sustituir el adaptador por almacenamiento de objetos.
 
 Esta entrega ya aplicó `docs/database/album-photos.sql` a la base local. **No necesitas ejecutarlo de nuevo.** En otra base existente se puede ejecutar; es reejecutable. Una base nueva usa solo `schema.sql`. [Rutas, reglas y archivos modificados](docs/memories.md).
+
+`GET /profiles/:id` requiere sesión y devuelve solo nombre, biografía e intereses de usuarios activos. No expone correo, contraseña ni datos de sesión.

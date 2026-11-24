@@ -1,3 +1,4 @@
+import { UserGetPublicProfile } from '../../user/application/UserGetPublicProfile.ts';
 import { Albums } from '../../album/application/Albums.ts';
 import { PostgresAlbumRepository } from '../../album/infrastructure/PostgresAlbumRepository.ts';
 import { LocalPhotoStorage, SharpImages } from '../../album/infrastructure/LocalPhotoStorage.ts';
@@ -42,6 +43,7 @@ export class ServiceContainer {
     create: UserCreate;
     getAll: UserGetAll;
     getOneById: UserGetOneById;
+  getPublicProfile: UserGetPublicProfile;
     edit: UserEdit;
     delete: UserDelete;
   };
@@ -57,6 +59,7 @@ export class ServiceContainer {
       create: new UserCreate(users, passwords),
       getAll: new UserGetAll(users),
       getOneById: new UserGetOneById(users),
+      getPublicProfile: new UserGetPublicProfile(users),
       edit: new UserEdit(users, passwords, sessions),
       delete: new UserDelete(users, sessions),
     };

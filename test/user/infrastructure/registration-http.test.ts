@@ -106,3 +106,18 @@ test('CRUD devuelve rol, estado y perfil actualizado sin secretos; valida contra
   assert.equal(data.user.role, 'user');
   assert.equal(data.user.profile.completed, false);
 });
+
+
+test('perfil visible requiere sesión y no expone campos privados ni administradores', async t => {
+  const request = await start(t);
+  const session = await (await request('/auth/register', 'POST', { email: 'profile@example.com', password: 'password123' })).json();
+  const path = `/profiles/${session.user.id}`;
+  assert.equal((await request(path)).status, 401);
+  const response = await request(path, 'GET', undefined, session.token);
+  assert.equal(response.status, 200);
+  const { profile } = await response.json();
+  assert.deepEqual(Object.keys(profile).sort(), ['bio', 'displayName', 'id', 'interests']);
+  assert.equal(profile.id, session.user.id);
+  assert.equal((await request('/profiles/1', 'GET', undefined, session.token)).status, 404);
+  assert.equal((await request('/profiles/invalid', 'GET', undefined, session.token)).status, 400);
+});

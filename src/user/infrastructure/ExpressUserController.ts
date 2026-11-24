@@ -1,3 +1,4 @@
+import { UserGetPublicProfile } from '../application/UserGetPublicProfile.ts';
 import type { UserRegister } from '../application/UserRegister.ts';
 import type { UserUpdateProfile } from '../application/UserUpdateProfile.ts';
 import type { UserGetCategories } from '../application/UserGetCategories.ts';
@@ -28,6 +29,7 @@ export interface UserUseCases {
   create: UserCreate;
   getAll: UserGetAll;
   getOneById: UserGetOneById;
+  getPublicProfile: UserGetPublicProfile;
   edit: UserEdit;
   delete: UserDelete;
 }
@@ -39,6 +41,7 @@ export class ExpressUserController {
   readonly requireAdmin: RequestHandler;
   readonly login: RequestHandler;
   readonly me: RequestHandler;
+  readonly publicProfile: RequestHandler;
   readonly logout: RequestHandler;
   readonly create: RequestHandler;
   readonly getAll: RequestHandler;
@@ -56,6 +59,11 @@ export class ExpressUserController {
       next();
     };
     this.login = async (req, res) => { res.json(await users.login.execute(req.body)); };
+    this.publicProfile = async (req, res) => {
+      await users.getCurrent.execute(bearer(req));
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ profile: await users.getPublicProfile.execute(req.params.id) });
+    };
     this.me = async (req, res) => { res.json({ user: await users.getCurrent.execute(bearer(req)) }); };
     this.logout = async (req, res) => {
       await users.logout.execute(bearer(req));
