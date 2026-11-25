@@ -119,3 +119,7 @@ Implementado: “Mis recuerdos”, búsqueda por radio, galería paginada, subid
 Esta entrega ya aplicó `docs/database/album-photos.sql` a la base local. **No necesitas ejecutarlo de nuevo.** En otra base existente se puede ejecutar; es reejecutable. Una base nueva usa solo `schema.sql`. [Rutas, reglas y archivos modificados](docs/memories.md).
 
 `GET /profiles/:id` requiere sesión y devuelve solo nombre, biografía e intereses de usuarios activos. No expone correo, contraseña ni datos de sesión.
+
+## Despliegue
+
+Preparación y configuración del servicio: [Backend en Render](docs/render.md). `npm run start:production` ejecuta `dist/main.js` con variables del alojamiento, sin requerir `.env`.
