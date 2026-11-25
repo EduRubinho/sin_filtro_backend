@@ -1,7 +1,14 @@
+import { UserGetPublicProfile } from '../../user/application/UserGetPublicProfile.ts';
+import { Albums } from '../../album/application/Albums.ts';
+import { PostgresAlbumRepository } from '../../album/infrastructure/PostgresAlbumRepository.ts';
+import { LocalPhotoStorage, SharpImages } from '../../album/infrastructure/LocalPhotoStorage.ts';
 import { EventManagement } from '../../event/application/EventManagement.ts';
 import { PostgresEventRepository } from '../../event/infrastructure/PostgresEventRepository.ts';
 import { ActivityChat } from '../../event/application/ActivityChat.ts';
 import { PostgresChatRepository } from '../../event/infrastructure/PostgresChatRepository.ts';
+import { ActivityAttendance } from '../../event/application/ActivityAttendance.ts';
+import { PostgresAttendanceRepository } from '../../event/infrastructure/PostgresAttendanceRepository.ts';
+import { AttendancePin } from '../../event/infrastructure/AttendancePin.ts';
 import { UserRegister } from '../../user/application/UserRegister.ts';
 import { UserUpdateProfile } from '../../user/application/UserUpdateProfile.ts';
 import { UserGetCategories } from '../../user/application/UserGetCategories.ts';
@@ -36,6 +43,7 @@ export class ServiceContainer {
     create: UserCreate;
     getAll: UserGetAll;
     getOneById: UserGetOneById;
+  getPublicProfile: UserGetPublicProfile;
     edit: UserEdit;
     delete: UserDelete;
   };
@@ -51,6 +59,7 @@ export class ServiceContainer {
       create: new UserCreate(users, passwords),
       getAll: new UserGetAll(users),
       getOneById: new UserGetOneById(users),
+      getPublicProfile: new UserGetPublicProfile(users),
       edit: new UserEdit(users, passwords, sessions),
       delete: new UserDelete(users, sessions),
     };
@@ -66,7 +75,9 @@ export async function createServiceContainer(config: AppConfig) {
     const container = new ServiceContainer(users, await scryptPasswords(), memorySessions());
     const events = new EventManagement(new PostgresEventRepository(pool));
     const chats = new ActivityChat(new PostgresChatRepository(pool));
-    return { container, events, chats, close: () => pool.end() };
+    const attendance = new ActivityAttendance(new PostgresAttendanceRepository(pool, new AttendancePin(config.attendancePinSecret)));
+    const albums = new Albums(new PostgresAlbumRepository(pool), new LocalPhotoStorage(process.env.PHOTO_STORAGE_DIR ?? './storage/photos'), new SharpImages());
+    return { container, events, chats, attendance, albums, close: () => pool.end() };
   } catch (error) {
     await pool.end();
     throw error;

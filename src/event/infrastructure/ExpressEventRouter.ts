@@ -5,8 +5,9 @@ import { ExpressUserController, type UserUseCases } from '../../user/infrastruct
 import { rateLimit } from 'express-rate-limit';
 import type { ActivityChat } from '../application/ActivityChat.ts';
 import type { ChatRealtimePublisher } from './ActivityChatRealtime.ts';
+import type { ActivityAttendance } from '../application/ActivityAttendance.ts';
 
-export function ExpressEventRouter(events: EventManagement, users: UserUseCases, chats?: ActivityChat, realtime?: ChatRealtimePublisher): Router {
+export function ExpressEventRouter(events: EventManagement, users: UserUseCases, chats?: ActivityChat, realtime?: ChatRealtimePublisher, attendance?: ActivityAttendance): Router {
   const router = Router();
   const authenticated = async (authorization: string | undefined) => {
     const token = /^Bearer (.+)$/.exec(authorization ?? '')?.[1];
@@ -20,10 +21,32 @@ export function ExpressEventRouter(events: EventManagement, users: UserUseCases,
   };
   // Lectura para cuentas autenticadas: nunca abre el CRUD administrativo a usuarios.
   router.get('/activities/map', async (req, res) => {
-    await authenticated(req.headers.authorization);
-    res.json(await events.map(req.query));
+    const user = await authenticated(req.headers.authorization);
+    res.set('Cache-Control', 'no-store').json(await events.map(req.query, user.id));
   });
   router.use('/activities', json({ limit: '16kb' }));
+  if (attendance) {
+    const pinLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false,
+      message: { error: { code: 'RATE_LIMITED', message: 'Demasiadas solicitudes de asistencia. Espera 15 minutos.' } } });
+    router.use('/activities/:id/attendance', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+    router.get('/activities/:id/attendance', async (req, res) => {
+      const user = await regularUser(req.headers.authorization);
+      res.json(await attendance.info(req.params.id, user.id));
+    });
+    router.post('/activities/:id/attendance/pin', pinLimiter, async (req, res) => {
+      const user = await regularUser(req.headers.authorization);
+      res.status(201).json(await attendance.issue(req.params.id, user.id));
+    });
+    router.delete('/activities/:id/attendance/pin', pinLimiter, async (req, res) => {
+      const user = await regularUser(req.headers.authorization);
+      await attendance.revoke(req.params.id, user.id);
+      res.status(204).end();
+    });
+    router.post('/activities/:id/attendance/validate', pinLimiter, async (req, res) => {
+      const user = await regularUser(req.headers.authorization);
+      res.json(await attendance.validate(req.params.id, user.id, req.body));
+    });
+  }
   router.get('/activities/mine', async (req, res) => {
     const user = await regularUser(req.headers.authorization);
     res.json(await events.plans(user.id));

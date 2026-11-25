@@ -14,12 +14,14 @@
     "test": "node --test \"test/**/*.test.ts\"",
     "hash-password": "node scripts/hash-password.ts",
     "set-admin": "node --env-file=.env scripts/set-admin.ts",
-    "test:integration": "RUN_POSTGRES_TESTS=1 node --env-file=.env --test test/integration/*.test.ts"
+    "test:integration": "RUN_POSTGRES_TESTS=1 node --env-file=.env --test test/integration/*.test.ts",
+    "start:production": "node dist/main.js"
   },
   "dependencies": {
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
     "pg": "^8.23.0",
+    "sharp": "^0.35.5",
     "ws": "^8.22.2"
   },
   "devDependencies": {

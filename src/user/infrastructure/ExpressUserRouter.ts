@@ -22,6 +22,7 @@ export function ExpressUserRouter(users: UserUseCases): Router {
   router.get('/categories', controller.categories);
   router.post('/auth/login', controller.login);
   router.get('/auth/me', controller.me);
+  router.get('/profiles/:id', controller.publicProfile);
   router.post('/auth/logout', controller.logout);
   // Gestión administrativa disponible en todos los entornos.
   router.use('/users', controller.requireAdmin);

@@ -2,7 +2,7 @@
 
 **13 tablas: PostgreSQL + PostGIS.** Registro abierto con cualquier correo válido. Sin universidad, campus ni mascotas. Flujo: cuenta e intereses → mapa → inscripción y chat → PIN compartido del evento → álbumes y consulta de recuerdos por distancia.
 
-Estado: registro, login con roles, perfil y flujo básico de actividades implementados. Un usuario publica, consulta detalles, edita o cancela lo que organiza y se une o retira de actividades ajenas. El administrador conserva su CRUD independiente. PIN, chat y álbumes siguen pendientes. El único esquema de instalación es [schema.sql](schema.sql): ejecutarlo completo una sola vez en Query Tool de pgAdmin, sobre una **base nueva y vacía** con PostGIS disponible. Crea las 13 tablas y cuatro intereses iniciales, sin cuentas precargadas ni importación de datos anteriores. `queries.sql` contiene consultas parametrizadas para funciones futuras; no es un script de instalación.
+Estado: registro, login con roles, perfil y flujo básico de actividades implementados. Un usuario publica, consulta detalles, edita o cancela lo que organiza y se une o retira de actividades ajenas. El administrador conserva su CRUD independiente. PIN y chat están implementados; los álbumes tienen privacidad y activación, con galería de fotos y almacenamiento privado local. El único esquema de instalación es [schema.sql](schema.sql): ejecutarlo completo una sola vez en Query Tool de pgAdmin, sobre una **base nueva y vacía** con PostGIS disponible. Crea las 13 tablas y cuatro intereses iniciales, sin cuentas precargadas ni importación de datos anteriores. `queries.sql` contiene consultas parametrizadas para funciones futuras; no es un script de instalación.
 
 `users` se crea directamente con todos sus atributos, incluido `role`. Los dos `ALTER TABLE` del esquema únicamente añaden claves foráneas entre actividades, participantes y códigos, una vez creadas esas tablas; la relación circular actividad/organizador requiere declarar una FK después. No modifican usuarios ni migran una base antigua.
 
@@ -78,6 +78,8 @@ La FK `(activity_id, attendance_code_id)` impide usar un código de otro evento.
 
 Flujo elegido: **el organizador muestra el PIN; cada participante lo ingresa en su cuenta**.
 
+Implementado en el bloque 4: ventana de 15 minutos antes hasta el fin, PIN de 15 minutos, bloqueo de 15 minutos tras cinco fallos. La lista individual está disponible para el organizador; los inscritos consultan su propia validación y los totales. El organizador se excluye de los contadores y puede confirmar su asistencia ingresando el PIN vigente. El chat sigue siendo independiente. El detalle ya devuelve los permisos y la activación del álbum; la galería y los endpoints de archivos están implementados.
+
 1. El organizador habilita la validación. El backend comprueba identidad/rol, evento publicado y no eliminado, y ventana de asistencia. Propuesta inicial: desde 15 minutos antes de `starts_at` hasta `ends_at`; completar/cancelar el evento cierra la validación.
 2. El servidor genera un PIN aleatorio de **6 dígitos**, como texto para conservar ceros iniciales, y una fila en `activity_checkin_codes`. Vigencia propuesta de 15 minutos, sin superar la ventana. Solo devuelve el PIN en claro al organizador al emitirlo. Si lo pierde, lo regenera.
 3. El organizador lo comparte presencialmente. No aparece en el detalle público, QR del álbum ni automáticamente en el chat.
@@ -106,9 +108,9 @@ El PIN compartido puede reenviarse: valida conocimiento del código, no prueba p
 | Sin asistencia validada | No | Sí | No |
 | Con asistencia validada | Sí | Sí | Sí |
 
-Asistencia válida: `attendance_validated_at IS NOT NULL AND attendance_revoked_at IS NULL` **para ese evento**, con cuenta activa. Visitantes sin sesión solo ven álbumes públicos. Inscripción, autoría del evento o QR no sustituyen la validación.
+Asistencia válida: `attendance_validated_at IS NOT NULL AND attendance_revoked_at IS NULL` **para ese evento**, con cuenta activa. El mapa actual requiere sesión incluso para álbumes públicos; una futura vista web pública aún no está implementada. Inscripción, autoría del evento o QR no sustituyen la validación.
 
-Se elimina la visibilidad individual de las fotos: **todas heredan la del álbum**. Pasar un álbum de privado a público publica sus fotos; la interfaz debe explicarlo al organizador. No se promete privacidad independiente por foto.
+Se elimina la visibilidad individual de las fotos: **todas heredan la del álbum**. La privacidad se elige en `activities.album_visibility` y queda inmutable desde la publicación; `albums.visibility` debe coincidir. No se promete privacidad independiente por foto.
 
 Salir voluntariamente después de asistir no borra ese hecho ni los permisos históricos. Revocar asistencia sí retira lectura privada/subida. Expulsar (`removed`) revoca asistencia en la misma transacción. Las fotos públicas siguen públicas y revocar asistencia no borra automáticamente fotos anteriores.
 
@@ -118,22 +120,20 @@ Los archivos están en almacenamiento privado, con URLs temporales emitidas tras
 
 QR = URL web con token largo independiente del PIN. Validar su hash, vigencia y revocación y luego los permisos del álbum. No autoriza asistencia ni subida anónima. Revocar el enlace invalida esa URL, no vuelve privado un álbum público accesible por otras rutas.
 
-## 6. Mapa y recuerdos: consultas separadas
+## 6. Filtros del mapa
 
-**Mapa (implementado):** ruta `GET /activities/map?lat=...&lng=...&radiusMeters=500`. Requiere sesión activa; radio máximo 10000 m, hasta 100 resultados con `hasMore`. Solo `published`, `ends_at > ahora` y `deleted_at IS NULL`, dentro del radio. Devuelve coordenadas para marcadores. Excluye completadas aunque su fin programado sea futuro.
+**Mapa (implementado):** `GET /activities/map?lat=...&lng=...&radiusMeters=500&phase=active|finished`. Requiere sesión activa. Radio máximo 10000 m, hasta 100 resultados con `hasMore`. Activas incluye próximas/en curso. Finalizadas incluye eventos terminados con privacidad pública o asistencia validada para privados. Círculo coral en activas y blanco con borde/ícono negros en finalizadas; foto de referencia a color.
 
-**Recuerdos cercanos:** ruta propuesta `GET /albums/nearby?lat=...&lng=...&radiusMeters=500`. Devuelve una lista en su propio apartado; **no se añade a los marcadores del mapa**. El punto puede ser GPS o un punto elegido y no necesita guardarse en `user_locations`.
-
-Condiciones conjuntas:
+Condiciones de finalizadas:
 
 1. `ST_DWithin(activity.location, punto_consulta, radio_metros)`.
 2. `completed`, o `published` cuya hora de fin ya pasó. Borradores/canceladas no pasan a recuerdos por tener fechas antiguas.
 3. Actividad y álbum con `deleted_at IS NULL`.
-4. Existe un álbum público, **o** el usuario tiene asistencia validada y no revocada para ese evento privado.
+4. Privacidad pública, **o** el usuario tiene asistencia validada, no revocada y no está expulsado de ese evento privado.
 
-`completed_at` conserva la finalización explícita. `ends_at` permite reconocer finalización por tiempo sin esperar un cron. `COALESCE(completed_at, ends_at)` sirve para mostrar/ordenar cuándo finalizó. Eventos sin álbum aún no aparecen en esa consulta.
+`completed_at` conserva la finalización explícita. `ends_at` permite reconocer finalización por tiempo sin esperar un cron. `COALESCE(completed_at, ends_at)` sirve para mostrar/ordenar cuándo finalizó. El álbum se materializa al abrir el detalle finalizado; el mapa puede mostrarlo antes de esa inserción.
 
-Ejemplo: un vóley terminado a 300 m con álbum privado aparece solo para asistentes validados. Un café terminado con álbum público aparece para cualquiera, pero solo sus asistentes validados suben fotos. Ambos quedan fuera del mapa de planes.
+Ejemplo: un vóley terminado a 300 m con álbum privado aparece solo para asistentes validados. Un café terminado con álbum público aparece para cualquiera, pero solo sus asistentes validados suben fotos. Ambos aparecen en el filtro Finalizadas del mapa según permisos.
 
 `queries.sql` incluye `map_activities`, `nearby_past_albums`, `album_photos`, `insert_album_photo` y `save_latest_location`. El usuario se obtiene de la sesión; nunca de un `userId` enviado para consultar privilegios ajenos. Sesiones inválidas se rechazan, no se degradan silenciosamente a acceso anónimo.
 
@@ -176,3 +176,7 @@ Comprobar en una base aislada con PostGIS antes de integrar:
 | Cupo simultáneo, rotación PIN o revocación durante otra petición | Bloqueos evitan sobrecupo, validación con PIN retirado o subida tras revocar. |
 
 No incluye mascotas, instituciones, directorio de locales, pagos, mensajes privados ni álbumes independientes. Estos archivos no implementan por sí solos un sistema de PIN funcional ni nuevas pantallas.
+
+## Cambio de privacidad y mapa (implementado)
+
+Base existente: ejecutar una vez `album-privacy.sql`. Base nueva: solo `schema.sql`. No ejecutar el esquema completo sobre una base con datos. La privacidad se fija desde la publicación; el álbum solo se habilita después de finalizar, nunca al cancelar. El organizador puede confirmar su asistencia con PIN dentro de la misma ventana; queda fuera de cupos y contadores. Los metadatos y permisos están implementados; almacenamiento local privado, galería y endpoints de fotos están implementados (ver `../memories.md`).

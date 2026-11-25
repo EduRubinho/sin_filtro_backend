@@ -71,6 +71,7 @@ CREATE TABLE public.activities (
     currency VARCHAR(3) NOT NULL DEFAULT 'PEN' CHECK (currency ~ '^[A-Z]{3}$'),
     -- Máximo de participantes; el organizador no consume una plaza.
     capacity INTEGER CHECK (capacity > 0),
+    album_visibility TEXT NOT NULL DEFAULT 'private' CHECK (album_visibility IN ('private','public')),
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'cancelled', 'completed')),
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -257,5 +258,39 @@ INSERT INTO public.categories (slug, name, icon_name) VALUES
     ('musica', 'Música', 'musical-notes-outline'),
     ('cafe', 'Café', 'cafe-outline'),
     ('arte', 'Arte', 'color-palette-outline');
+
+CREATE FUNCTION public.lock_activity_album_visibility() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.status <> 'draft' AND NEW.album_visibility <> OLD.album_visibility THEN
+    RAISE EXCEPTION 'La privacidad queda fija desde la publicación' USING ERRCODE='23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER activity_album_visibility_locked BEFORE UPDATE ON public.activities
+  FOR EACH ROW EXECUTE FUNCTION public.lock_activity_album_visibility();
+
+CREATE FUNCTION public.check_album_visibility() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE activity public.activities;
+BEGIN
+  SELECT * INTO activity FROM public.activities WHERE id=NEW.activity_id FOR SHARE;
+  IF activity.album_visibility <> NEW.visibility THEN
+    RAISE EXCEPTION 'La privacidad del álbum debe coincidir con la actividad' USING ERRCODE='23514';
+  END IF;
+  IF TG_OP='INSERT' AND (activity.deleted_at IS NOT NULL OR NOT
+    (activity.status='completed' OR (activity.status='published' AND activity.ends_at<=clock_timestamp()))) THEN
+    RAISE EXCEPTION 'El álbum se habilita al finalizar la actividad' USING ERRCODE='23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER album_visibility_matches BEFORE INSERT OR UPDATE ON public.albums
+  FOR EACH ROW EXECUTE FUNCTION public.check_album_visibility();
+
+ALTER TABLE public.album_photos ADD COLUMN IF NOT EXISTS size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes>=0);
+ALTER TABLE public.album_photos ADD COLUMN IF NOT EXISTS width INTEGER NOT NULL DEFAULT 0 CHECK(width>=0);
+ALTER TABLE public.album_photos ADD COLUMN IF NOT EXISTS height INTEGER NOT NULL DEFAULT 0 CHECK(height>=0);
+ALTER TABLE public.album_photos ADD COLUMN IF NOT EXISTS upload_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS album_photos_upload_id_unique ON public.album_photos(uploaded_by,upload_id);
 
 COMMIT;
