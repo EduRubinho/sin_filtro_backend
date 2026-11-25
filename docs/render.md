@@ -9,7 +9,7 @@ Trabajar en `desarrollo`, que conserva los avances de `upgrade/expo-58` y la pre
 ## Requisitos antes de iniciar
 
 - PostgreSQL remoto con PostGIS y esquema instalado. `localhost` apunta al contenedor de Render, no a la Mac. Configurar TLS según el proveedor sin desactivar la validación del certificado.
-- Fotos: el adaptador actual escribe archivos locales. Requiere un disco persistente (servicio de pago) o implementar almacenamiento de objetos antes de habilitar subidas. No usar disco efímero para fotos reales.
+- Fotos: configurar `SUPABASE_URL` (origen HTTPS), `SUPABASE_SECRET_KEY` (clave secreta `sb_secret_`, solo backend) y `SUPABASE_STORAGE_BUCKET=activity-photos`. Crear ese bucket como privado. El backend valida permisos antes de descargar, subir o eliminar; no se publican URLs del bucket. Sin configuración Supabase se conserva disco local en desarrollo. Producción exige Supabase o `PHOTO_STORAGE_DIR` en un disco persistente. Los archivos antiguos locales no se migran automáticamente.
 - Sesiones y conexiones de chat en memoria: usar una sola instancia. Reinicios y despliegues cierran sesiones. La persistencia de sesiones queda pendiente.
 - Revisar la configuración de proxy e IP de cliente en Render antes de aceptar tráfico real: los límites de solicitudes deben identificar al cliente correctamente.
 
